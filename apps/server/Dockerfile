@@ -4,15 +4,20 @@
 FROM rust:1.78-bookworm AS builder
 WORKDIR /app
 
-# Cache dependency build: copy manifests first
-COPY Cargo.toml Cargo.lock ./
+# Copy workspace manifests first for layer caching.
+# Root Cargo.lock is optional — `cargo generate-lockfile` creates it; stub build
+# will generate it in-image if absent. Keep early COPY to Cargo.toml only so
+# builds don't break when root Cargo.lock hasn't been committed yet (full source
+# is copied later via COPY . .).
+COPY Cargo.toml ./
 COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY packages/protocol/Cargo.toml packages/protocol/Cargo.toml
 COPY packages/networking/Cargo.toml packages/networking/Cargo.toml
 COPY packages/emulator-sdk/Cargo.toml packages/emulator-sdk/Cargo.toml
 COPY packages/shared/Cargo.toml packages/shared/Cargo.toml
 COPY adapters/fbneo/Cargo.toml adapters/fbneo/Cargo.toml
-# Create stub sources so `cargo build` can resolve the workspace graph
+
+# Create stub sources so `cargo build` can resolve the workspace graph.
 RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
              packages/emulator-sdk/src packages/shared/src adapters/fbneo/src \
     && echo "fn main() {}" > apps/server/src/main.rs \
@@ -23,10 +28,10 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
     && echo "" > adapters/fbneo/src/lib.rs \
     && cargo build --release 2>/dev/null || true
 
-# Now copy the real sources
+# Copy the real sources (invalidates cache only when source changes).
 COPY . .
 
-# Build the server binary (adjust package name if different)
+# Build the server binary.
 RUN cargo build --release -p openfight-server \
     && ls -lh target/release/openfight-server* 2>/dev/null || ls -lh target/release/
 
@@ -41,8 +46,6 @@ RUN useradd -m -u 10001 openfight
 WORKDIR /app
 
 COPY --from=builder /app/target/release/openfight-server /usr/local/bin/openfight-server
-# If workspace binary is named differently, the fallback below helps debug:
-# COPY --from=builder /app/target/release/server /usr/local/bin/openfight-server
 
 # Migrations / static assets if present
 COPY --from=builder /app/apps/server/migrations ./migrations

@@ -31,8 +31,8 @@ services:
     environment:
       DATABASE_URL: postgres://openfight:openfight@db:5432/openfight
       RUST_LOG: info
-      # SESSION_SECRET must be overridden in production via .env
       SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      PORT: 8080
     ports:
       - "8080:8080"
     healthcheck:
@@ -42,8 +42,8 @@ services:
       retries: 5
       start_period: 15s
 
-  # Relay (TURN/STUN) placeholder — uncomment when openfight-relay is implemented.
-  # See services/relay/ for the future relay crate.
+  # openfight-relay: TURN/relay placeholder for future M3.
+  # Uncomment when services/relay implements the relay binary.
   # relay:
   #   build:
   #     context: .
@@ -51,13 +51,13 @@ services:
   #   image: openfight-relay:local
   #   restart: unless-stopped
   #   depends_on:
-  #     - openfight-server
+  #     db:
+  #       condition: service_healthy
   #   environment:
   #     RUST_LOG: info
   #   ports:
   #     - "3478:3478"
   #     - "3478:3478/udp"
-  #     - "49152-49200:49152-49200/udp"
 
 volumes:
   pgdata:

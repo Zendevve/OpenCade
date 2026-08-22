@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "apps/server",
+    "packages/protocol",
+    "packages/networking",
+    "packages/emulator-sdk",
+    "packages/shared",
+    "adapters/fbneo",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+repository = "https://github.com/openfight/openfight"
+rust-version = "1.77"

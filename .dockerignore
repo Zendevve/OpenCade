@@ -1,0 +1,34 @@
+# Rust build artifacts — never ship build context with compiled output
+**/target
+**/target/
+target/
+**/*.dll
+**/*.exe
+**/*.pdb
+**/*.so
+**/*.dylib
+
+# VCS
+.git
+.gitignore
+
+# Node / frontend
+node_modules
+**/node_modules
+dist
+**/dist
+.pnpm-store
+
+# Env and secrets
+.env
+*.log
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+
+# Research binaries (clean-room guardrails — never ship)
+research/binaries
+research/binaries/**

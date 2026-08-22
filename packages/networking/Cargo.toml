@@ -1,0 +1,12 @@
+[package]
+name = "openfight-networking"
+version = "0.1.0"
+edition = "2021"
+description = "OpenFight networking — signaling, NAT traversal, relay (placeholder for M1)"
+license = "Apache-2.0"
+repository = "https://github.com/openfight/openfight"
+rust-version = "1.77"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"

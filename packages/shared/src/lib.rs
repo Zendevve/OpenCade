@@ -1,0 +1,1 @@
+// openfight-shared placeholder.
