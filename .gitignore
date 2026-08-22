@@ -8,7 +8,7 @@
 /target/
 **/target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock — tracked for workspace (was ignored)
 # Keep Cargo.lock for binaries (apps/client, apps/server, services/relay)
 # but ignore for libraries if they opt in via negation below.
 # Uncomment to track library locks: !packages/**/Cargo.lock
@@ -28,7 +28,7 @@ out/
 
 # pnpm
 .pnpm-store/
-pnpm-lock.yaml
+# pnpm-lock.yaml — tracked (was ignored)
 # Keep pnpm-lock.yaml — remove the line above if you want to ignore it
 # .pnpm-debug.log is covered by *.log
 

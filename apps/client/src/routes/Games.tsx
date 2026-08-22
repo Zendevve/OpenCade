@@ -10,7 +10,7 @@ const PLACEHOLDER_GAMES: Game[] = [
   { id: "sfiii3", name: "Street Fighter III: 3rd Strike", emulator: "fbneo" },
   { id: "garou", name: "Garou: Mark of the Wolves", emulator: "fbneo" },
   { id: "kof98", name: "The King of Fighters '98", emulator: "fbneo" },
-  { id: "mvc2", name: "Marvel vs. Capcom 2", emulator: "flycast" }
+  { id: "mvc2", name: "Marvel vs. Capcom 2", emulator: "flycast" },
 ];
 
 export default function Games() {

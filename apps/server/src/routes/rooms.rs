@@ -85,7 +85,9 @@ pub async fn create_room(
         .ok_or_else(|| AppError::BadRequest("missing game_id".to_string()))?;
 
     if game_id_str.trim().is_empty() {
-        return Err(AppError::BadRequest("game_id must not be empty".to_string()));
+        return Err(AppError::BadRequest(
+            "game_id must not be empty".to_string(),
+        ));
     }
 
     let host_id_str = resolve_host_id(&headers);
@@ -133,15 +135,13 @@ pub async fn get_room(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let room_uuid = Uuid::parse_str(&id)
-        .map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
+    let room_uuid =
+        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
 
-    let row = sqlx::query(
-        "SELECT id, game_id, host_id, guest_id, state FROM rooms WHERE id = $1",
-    )
-    .bind(room_uuid)
-    .fetch_one(&state.pool)
-    .await;
+    let row = sqlx::query("SELECT id, game_id, host_id, guest_id, state FROM rooms WHERE id = $1")
+        .bind(room_uuid)
+        .fetch_one(&state.pool)
+        .await;
 
     match row {
         Ok(r) => {
@@ -158,10 +158,7 @@ pub async fn get_room(
 
             let payload_room = RoomPayload {
                 id: db_id.to_string(),
-                game_id: match game_id.map(|g| g.to_string()) {
-                    Some(v) => v,
-                    None => String::new(),
-                },
+                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
                 host_id: match host_id.map(|h| h.to_string()) {
                     Some(v) => v,
                     None => "test-user".to_string(),
@@ -184,8 +181,8 @@ pub async fn accept_room(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let room_uuid = Uuid::parse_str(&id)
-        .map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
+    let room_uuid =
+        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
 
     // First set to challenging, then connecting — do in one update to connecting for simplicity,
     // but log both transitions.
@@ -213,10 +210,7 @@ pub async fn accept_room(
 
             let payload_room = RoomPayload {
                 id: db_id.to_string(),
-                game_id: match game_id.map(|g| g.to_string()) {
-                    Some(v) => v,
-                    None => String::new(),
-                },
+                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
                 host_id: match host_id.map(|h| h.to_string()) {
                     Some(v) => v,
                     None => "test-user".to_string(),
@@ -235,7 +229,9 @@ pub async fn accept_room(
                 .fetch_one(&state.pool)
                 .await;
             if exists.is_ok() {
-                return Err(AppError::BadRequest("room not in accept-able state".to_string()));
+                return Err(AppError::BadRequest(
+                    "room not in accept-able state".to_string(),
+                ));
             }
             Err(AppError::NotFound(format!("room not found: {}", id)))
         }
@@ -248,8 +244,8 @@ pub async fn decline_room(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let room_uuid = Uuid::parse_str(&id)
-        .map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
+    let room_uuid =
+        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
 
     let row = sqlx::query(
         "UPDATE rooms SET state = 'cancelled', updated_at = now() WHERE id = $1 RETURNING id, game_id, host_id, guest_id, state",
@@ -275,10 +271,7 @@ pub async fn decline_room(
 
             let payload_room = RoomPayload {
                 id: db_id.to_string(),
-                game_id: match game_id.map(|g| g.to_string()) {
-                    Some(v) => v,
-                    None => String::new(),
-                },
+                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
                 host_id: match host_id.map(|h| h.to_string()) {
                     Some(v) => v,
                     None => "test-user".to_string(),
@@ -300,8 +293,8 @@ pub async fn cancel_room(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    let room_uuid = Uuid::parse_str(&id)
-        .map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
+    let room_uuid =
+        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
 
     let row = sqlx::query(
         "UPDATE rooms SET state = 'cancelled', updated_at = now() WHERE id = $1 AND state IN ('waiting','challenging','connecting') RETURNING id, game_id, host_id, guest_id, state",
@@ -327,10 +320,7 @@ pub async fn cancel_room(
 
             let payload_room = RoomPayload {
                 id: db_id.to_string(),
-                game_id: match game_id.map(|g| g.to_string()) {
-                    Some(v) => v,
-                    None => String::new(),
-                },
+                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
                 host_id: match host_id.map(|h| h.to_string()) {
                     Some(v) => v,
                     None => "test-user".to_string(),
@@ -348,7 +338,9 @@ pub async fn cancel_room(
                 .fetch_one(&state.pool)
                 .await;
             if exists.is_ok() {
-                return Err(AppError::BadRequest("room cannot be cancelled in current state".to_string()));
+                return Err(AppError::BadRequest(
+                    "room cannot be cancelled in current state".to_string(),
+                ));
             }
             Err(AppError::NotFound(format!("room not found: {}", id)))
         }

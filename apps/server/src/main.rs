@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+// M1 skeleton — many handlers are wired lazily; suppress dead_code until M2-M3 wire all routes.
 mod config;
 mod error;
 mod routes;
@@ -43,10 +45,11 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Self {
-        let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://openfight:openfight@localhost:5432/openfight".to_string());
-        let session_secret =
-            env::var("SESSION_SECRET").unwrap_or_else(|_| "dev-session-secret-change-me".to_string());
+        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://openfight:openfight@localhost:5432/openfight".to_string()
+        });
+        let session_secret = env::var("SESSION_SECRET")
+            .unwrap_or_else(|_| "dev-session-secret-change-me".to_string());
         let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
         let port = env::var("PORT")
             .ok()
@@ -148,7 +151,10 @@ async fn register_handler(
         "username": username,
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::CREATED, Json(Envelope::new("auth.register.ok", payload)))
+    (
+        StatusCode::CREATED,
+        Json(Envelope::new("auth.register.ok", payload)),
+    )
 }
 
 async fn login_handler(
@@ -166,12 +172,18 @@ async fn login_handler(
         "token": "stub-jwt-token",
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("auth.login.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("auth.login.ok", payload)),
+    )
 }
 
 async fn logout_handler(State(_state): State<AppState>) -> (StatusCode, Json<Envelope<Value>>) {
     let payload = json!({ "message": "logout successful" });
-    (StatusCode::OK, Json(Envelope::new("auth.logout.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("auth.logout.ok", payload)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +196,10 @@ async fn list_games_handler(State(_state): State<AppState>) -> (StatusCode, Json
         "games": [],
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("games.list.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("games.list.ok", payload)),
+    )
 }
 
 async fn get_game_handler(
@@ -202,12 +217,17 @@ async fn get_game_handler(
 // Servers
 // ---------------------------------------------------------------------------
 
-async fn list_servers_handler(State(_state): State<AppState>) -> (StatusCode, Json<Envelope<Value>>) {
+async fn list_servers_handler(
+    State(_state): State<AppState>,
+) -> (StatusCode, Json<Envelope<Value>>) {
     let payload = json!({
         "servers": [],
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("servers.list.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("servers.list.ok", payload)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +243,10 @@ async fn list_lobbies_handler(
         "lobbies": [],
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("lobbies.list.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("lobbies.list.ok", payload)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +274,10 @@ async fn create_room_handler(
         },
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::CREATED, Json(Envelope::new("rooms.create.ok", payload)))
+    (
+        StatusCode::CREATED,
+        Json(Envelope::new("rooms.create.ok", payload)),
+    )
 }
 
 async fn get_room_handler(
@@ -274,7 +300,10 @@ async fn accept_room_handler(
         "status": "accepted",
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("rooms.accept.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("rooms.accept.ok", payload)),
+    )
 }
 
 async fn decline_room_handler(
@@ -286,7 +315,10 @@ async fn decline_room_handler(
         "status": "declined",
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("rooms.decline.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("rooms.decline.ok", payload)),
+    )
 }
 
 async fn cancel_room_handler(
@@ -298,17 +330,17 @@ async fn cancel_room_handler(
         "status": "cancelled",
         "protocol_version": PROTOCOL_VERSION,
     });
-    (StatusCode::OK, Json(Envelope::new("rooms.cancel.ok", payload)))
+    (
+        StatusCode::OK,
+        Json(Envelope::new("rooms.cancel.ok", payload)),
+    )
 }
 
 // ---------------------------------------------------------------------------
 // WebSocket
 // ---------------------------------------------------------------------------
 
-async fn ws_handler(
-    State(state): State<AppState>,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
+async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 

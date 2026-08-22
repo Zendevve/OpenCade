@@ -260,8 +260,14 @@ mod tests {
         let env = Envelope::new("presence.update", json!({ "x": 1 }));
         let s = serde_json::to_string(&env).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert!(v.get("type").is_some(), "envelope must serialize msg_type as \"type\"");
-        assert!(v.get("msg_type").is_none(), "envelope must not expose \"msg_type\" key");
+        assert!(
+            v.get("type").is_some(),
+            "envelope must serialize msg_type as \"type\""
+        );
+        assert!(
+            v.get("msg_type").is_none(),
+            "envelope must not expose \"msg_type\" key"
+        );
         assert_eq!(v["type"], "presence.update");
         // roundtrip rename
         let back: Envelope = serde_json::from_str(&s).unwrap();
@@ -321,14 +327,20 @@ mod tests {
         assert!(env.validate().is_err(), "unsupported version should fail");
 
         env.version = "1".to_string();
-        assert!(env.validate().is_ok(), "\"1\" should be accepted for compat");
+        assert!(
+            env.validate().is_ok(),
+            "\"1\" should be accepted for compat"
+        );
 
         env.version = "1.0".to_string();
         env.msg_type = "".to_string();
         assert!(env.validate().is_err(), "empty msg_type should fail");
 
         env.msg_type = "   ".to_string();
-        assert!(env.validate().is_err(), "whitespace-only msg_type should fail");
+        assert!(
+            env.validate().is_err(),
+            "whitespace-only msg_type should fail"
+        );
 
         env.msg_type = "valid.type".to_string();
         assert!(env.validate().is_ok());

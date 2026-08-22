@@ -21,13 +21,10 @@ fn seeded_games() -> Vec<Value> {
 }
 
 /// GET /api/v1/games
-pub async fn list_games(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let rows_result =
-        sqlx::query("SELECT id, slug, name, emulator FROM games ORDER BY name ASC")
-            .fetch_all(&state.pool)
-            .await;
+pub async fn list_games(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let rows_result = sqlx::query("SELECT id, slug, name, emulator FROM games ORDER BY name ASC")
+        .fetch_all(&state.pool)
+        .await;
 
     let games: Vec<Value> = match rows_result {
         Ok(rows) => {

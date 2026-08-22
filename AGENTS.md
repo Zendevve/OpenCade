@@ -1,9 +1,11 @@
 # Repository Guidelines
 
 ## Project Overview
+
 OpenFight — open-source arcade netplay platform, clean-room alternative to proprietary Fightcade. Monorepo at `D:/OpenFight` (Apache-2.0) with Tauri + React + TypeScript client and Rust + Axum + PostgreSQL server. `D:/Fightcade` (v2.1.45) is **read-only reference** — never copied into this repo (see `docs/ARCHITECTURE.md §2` and `docs/reference-fightcade-install.md`). Goal: lobby → challenge → versioned signaling → P2P (or WS relay) → safe emulator launch.
 
 ## Architecture & Data Flow
+
 - **System:** `apps/client` (Tauri) ↔ `apps/server` (Axum) over HTTPS/WS ` /ws` → P2P/relay between peers. Server never sees game inputs except when relaying as fallback.
 - **Client:** Tauri 1.x hosts React routes `Games | Lobbies | Friends | Servers | Settings`. Rust core owns `fs` (ROM scan under `emulator/<core>/ROMs/`), `process` (spawn via `tauri::api::process::Command` with arg escaping, no shell), `diag` (Network Test). State: TanStack Query + Zustand, WS client with typed `packages/protocol` discriminated unions and reconnect backoff.
 - **Server:** Single Axum monolith + `postgres:16-alpine` (no Redis in MVP). Routes `POST /api/v1/auth/*`, `GET /api/v1/games`, `GET /api/v1/lobbies/:game`, `POST /api/v1/rooms` + `.../:id/{accept,decline,cancel}`, WS `/ws` with versioned envelope `{type,version,request_id,timestamp,payload}` (`presence.update`, `chat.message`, `challenge.*`, `session.offer/answer/candidate`, `room.*`). In-memory presence Hub, Postgres for durable state.
@@ -11,6 +13,7 @@ OpenFight — open-source arcade netplay platform, clean-room alternative to pro
 - **Reference only:** `docs/reference-fightcade-install.md` describes the opaque PyInstaller launcher (`emulator/fcade.exe`/`frm.exe` → `fightcade/launcher.py`) and `fbneo-training-mode` Lua surface — not used at runtime.
 
 ## Key Directories
+
 - `apps/client/` — Tauri app (replaces `fc2-electron`). `src/routes/{Games,Lobbies,Friends,Servers,Settings}.tsx`, `src/components/*`, `src/lib/{api,ws,store}.ts`, `src-tauri/src/{main.rs,commands/{fs,process,diag}.rs,adapters/fbneo.rs}`, `tauri.conf.json` (least-privilege `fs`/`process` allowlist).
 - `apps/server/` — Axum monolith (replaces `fightcade.com/replay`). `src/{main.rs,routes/*,ws.rs,state.rs,auth.rs,models/*}`, `migrations/001_users.sql`, `Dockerfile`.
 - `packages/protocol/` — shared wire types (`Envelope`, `RoomState`, `PresenceState`) — single source of truth, `serde` + `ts-rs` generation.
@@ -24,6 +27,7 @@ OpenFight — open-source arcade netplay platform, clean-room alternative to pro
 - Reference (read-only, outside repo): `D:/Fightcade/emulator/fbneo/fbneo-training-mode/` — vendored Lua `games/<rom>/<rom>.lua` + `hitboxes/*.lua` + `Run()` hook; pattern only.
 
 ## Development Commands
+
 ```bash
 # prerequisites: Rust 1.78+, pnpm 9+, Docker, Postgres 16
 pnpm install                    # workspace install (apps/*, packages/*)
@@ -46,6 +50,7 @@ pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/ope
 ```
 
 ## Code Conventions & Common Patterns
+
 - **Formatting:** `cargo fmt` (rustfmt edition 2021, `max_width=100`) and `pnpm format` (Prettier) — CI blocks on `fmt --check`. `clippy -D warnings` required.
 - **Naming:** crates `openfight-*`, TS packages `@openfight/*`, adapters `fbneo` (kebab), TOML ids `sfiii3`, `kof98` (snake, lowercase). DB tables `snake_case`; API/WS JSON also `snake_case` via `#[serde(rename_all = "snake_case")]` for payload keys and `#[serde(rename = "type")]` for the `type` field (see `Envelope` in `apps/server/src/main.rs:17-24` and `packages/protocol`).
 - **Error handling:** `thiserror` + `anyhow` in Rust, never `unwrap()` in server paths; TS `Result<T,E>`-style returns from `src/lib/api.ts`. Structured `tracing` logs (JSON in prod, pretty in dev) — never log tokens, passwords, or ROM paths with PII.
@@ -57,6 +62,7 @@ pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/ope
 - **Clean-room:** `research/` is observation-only, never compiled. `cargo deny` + `license = "Apache-2.0"` allowlist; no GPL emulator cores linked. Citations for `fbneo-training-mode` inspiration in `NOTICE`.
 
 ## Important Files
+
 - `docs/ARCHITECTURE.md` — authoritative system boundaries, diagram, M0-M7 phases, guardrails (read before coding)
 - `docs/reference-fightcade-install.md` — read-only notes on `D:/Fightcade` (Electron wrapper, PyInstaller launcher, training-mode Lua, JSON catalogs)
 - `research/GUARDRAILS.md` — forbidden/allowed lists, Observation→Documentation→Design→Implementation process
@@ -71,6 +77,7 @@ pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/ope
 - `pnpm-workspace.yaml`, `rustfmt.toml`, `.clippy.toml`, `.github/workflows/ci.yml`
 
 ## Runtime/Tooling Preferences
+
 - **Runtime:** Rust 1.78+ (MSRV), Tauri 1.x (WebView2 on Windows), Node 20+ with **pnpm 9** (not npm/yarn), Postgres 16-alpine (sqlx compile-time checked). No Bun. No Electron.
 - **Package manager:** `pnpm` at root (`pnpm-workspace.yaml` covers `apps/*`, `packages/*`, `adapters/*`, `services/*`) — `pnpm install` only, commit `pnpm-lock.yaml`.
 - **Build:** `cargo build --workspace`, `pnpm -C apps/client build`, `tauri build` (MSI/NSIS on Windows). Docker multi-stage `rust:1.78 → debian:bookworm-slim`.
@@ -79,6 +86,7 @@ pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/ope
 - **Tooling constraints:** keep `disableDevTools` off in dev, on in prod via Tauri `tauri.conf.json > build > devPath`. No `shell` permission in `tauri.conf.json`; use `process` allowlist.
 
 ## Testing & QA
+
 - **No ROMs/binaries in tests:** use fixtures under `tests/fixtures/` (tiny TOML, mock adapter). `research/binaries/` is gitignored.
 - **Unit:** `cargo test -p openfight-protocol -- envelope serde`, `-p emulator-sdk -- arg escaping`, `-p game-definitions -- loader/scan`, `pnpm test` for `packages/shared` (Vitest).
 - **Integration:** `cargo test --workspace -- --ignored` (spins `Axum` + `postgres` via `docker compose up -d db`, registers two users, WS presence → `challenge.send/accept` → `signaling.offer/answer/candidate` → `room PLAYING` → disconnect).

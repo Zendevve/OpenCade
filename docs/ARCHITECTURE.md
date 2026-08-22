@@ -49,15 +49,15 @@
 
 ### 2.1 Electron / Nativefier wrapper — `fc2-electron/`
 
-| Artifact | Detail |
-|---|---|
-| `fc2-electron/fc2-electron.exe` | 91 MB distribution binary |
-| `resources/app/package.json` | `electron@8.x`, `electron-context-menu@1.x`, `electron-dl@3.x`; no scripts, no lockfile |
-| `resources/app/nativefier.json` | Nativefier `8.0.7`, `targetUrl: https://web.fightcade.com/`, `internalUrls: https://replay.fightcade.com`, `singleInstance: true`, `disableDevTools: true`, `disableContextMenu: true`, `width/height: 768`, `tray: true`, `appVersion: 2.1.45` |
-| `resources/app/lib/main.js` | Webpack-bundled main process (~445 KB, + 365 KB map). Do not hand-patch — re-bundle via Nativefier |
-| `resources/app/lib/preload.js` | 2.4 KB preload |
-| `resources/app/lib/static/login.{html,css,js}` | Minimal IPC login form: `ipcRenderer.send('login-message', [username, password])` |
-| `resources/app/inject/_placeholder` | Nativefier injection hook (empty) |
+| Artifact                                       | Detail                                                                                                                                                                                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fc2-electron/fc2-electron.exe`                | 91 MB distribution binary                                                                                                                                                                                                                       |
+| `resources/app/package.json`                   | `electron@8.x`, `electron-context-menu@1.x`, `electron-dl@3.x`; no scripts, no lockfile                                                                                                                                                         |
+| `resources/app/nativefier.json`                | Nativefier `8.0.7`, `targetUrl: https://web.fightcade.com/`, `internalUrls: https://replay.fightcade.com`, `singleInstance: true`, `disableDevTools: true`, `disableContextMenu: true`, `width/height: 768`, `tray: true`, `appVersion: 2.1.45` |
+| `resources/app/lib/main.js`                    | Webpack-bundled main process (~445 KB, + 365 KB map). Do not hand-patch — re-bundle via Nativefier                                                                                                                                              |
+| `resources/app/lib/preload.js`                 | 2.4 KB preload                                                                                                                                                                                                                                  |
+| `resources/app/lib/static/login.{html,css,js}` | Minimal IPC login form: `ipcRenderer.send('login-message', [username, password])`                                                                                                                                                               |
+| `resources/app/inject/_placeholder`            | Nativefier injection hook (empty)                                                                                                                                                                                                               |
 
 The wrapper is a thin browser around `https://web.fightcade.com`. All lobby/matchmaking state is server-authoritative. Local state is filesystem.
 
@@ -302,7 +302,7 @@ All paths are relative to `D:/OpenFight`. No file from `D:/Fightcade` appears in
 Consequences:
 
 - MVP has **three containers**: `openfight-server`, `postgres`, `openfight-relay` (the last is a no-op/echo placeholder behind the same `/ws` fallback; peers prefer direct UDP).
-- No Redis, no separate signaling service, no message queue in MVP. If load demands it, the WS relay and presence can be extracted *behind the same protocol* — envelope versioning guarantees compatibility.
+- No Redis, no separate signaling service, no message queue in MVP. If load demands it, the WS relay and presence can be extracted _behind the same protocol_ — envelope versioning guarantees compatibility.
 - `services/relay` is a real crate/binary from day one so `docker-compose.yml` and CI already wire it; its implementation is `TODO(relay): WS echo fallback` until M5.
 
 ---
@@ -313,15 +313,15 @@ Tauri replaces the Electron 8 + Nativefier 8.0.7 wrapper entirely. The web conte
 
 ### 6.1 Tauri responsibilities (Rust layer — `src-tauri/src/`)
 
-| Concern | Implementation |
-|---|---|
+| Concern            | Implementation                                                                                                                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Process launch** | `std::process::Command` with explicit `arg` list, no `shell`, no string interpolation. `Command::new(path).args(sanitizedArgs)` only. Path is validated against an allow-list (adapter-provided binary). |
-| **Filesystem** | Scoped FS via `tauri-plugin-fs` with capability grants. Allowed: read `emulator/<core>/ROMs/**`, read/write `config/**`, `savestates/**`, logs. Denied: everything else by default. |
-| **Logging** | `tauri-plugin-log` → rotating file in OS log dir + console. Structured fields: `request_id`, `room_id`, `adapter`. |
-| **Permissions** | `tauri.conf.json` + `capabilities/` — **no `shell` plugin**. No `http` to arbitrary hosts — only `https://<configured-server>/api/v1` and `wss://<configured-server>/ws`. |
-| **Diagnostics** | Commands: `diagnose_roms`, `diagnose_network`, `diagnose_adapter`, `get_logs`. Each returns a serializable report (see §6.4). |
-| **Updates** | `tauri-plugin-updater` (placeholder, disabled in MVP dev). |
-| **Security** | CSP in `tauri.conf.json`, `dangerousUseHttpScheme` off, `withGlobalTauri` off in production. |
+| **Filesystem**     | Scoped FS via `tauri-plugin-fs` with capability grants. Allowed: read `emulator/<core>/ROMs/**`, read/write `config/**`, `savestates/**`, logs. Denied: everything else by default.                      |
+| **Logging**        | `tauri-plugin-log` → rotating file in OS log dir + console. Structured fields: `request_id`, `room_id`, `adapter`.                                                                                       |
+| **Permissions**    | `tauri.conf.json` + `capabilities/` — **no `shell` plugin**. No `http` to arbitrary hosts — only `https://<configured-server>/api/v1` and `wss://<configured-server>/ws`.                                |
+| **Diagnostics**    | Commands: `diagnose_roms`, `diagnose_network`, `diagnose_adapter`, `get_logs`. Each returns a serializable report (see §6.4).                                                                            |
+| **Updates**        | `tauri-plugin-updater` (placeholder, disabled in MVP dev).                                                                                                                                               |
+| **Security**       | CSP in `tauri.conf.json`, `dangerousUseHttpScheme` off, `withGlobalTauri` off in production.                                                                                                             |
 
 > **No shell, no injection.** Every emulator launch goes through `packages/emulator-sdk` `launch()` which escapes/validates before reaching `Command`. See §11.
 
@@ -376,25 +376,25 @@ Single Axum monolith. No Redis in MVP. WS relay lives in-process.
 
 Base: `https://<host>/api/v1`. JSON, `Content-Type: application/json`. Auth via `Authorization: Bearer <token>` (opaque session token; see §14).
 
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `POST` | `/auth/register` | no | Create account. Body `{ username, password, email? }` → `201 { user, token }` |
-| `POST` | `/auth/login` | no | Body `{ username, password }` → `{ user, token }`. Sets `Set-Cookie` alternative for browser clients |
-| `POST` | `/auth/logout` | yes | Invalidate current session |
-| `GET` | `/auth/me` | yes | Current user profile |
-| `GET` | `/games` | yes | List games (from `games` + `game_versions`) |
-| `GET` | `/games/:id` | yes | Game detail + versions |
-| `GET` | `/servers` | yes | List relay/region servers (from `servers` table) |
-| `GET` | `/lobbies` | yes | List lobbies (filtered by `gameId?`) |
-| `POST` | `/lobbies` | yes | Create lobby `{ gameId, name, maxPlayers }` |
-| `GET` | `/lobbies/:id` | yes | Lobby detail + members |
-| `POST` | `/rooms` | yes | Create room (match) `{ gameId, serverId? }` |
-| `GET` | `/rooms/:id` | yes | Room detail + state |
-| `POST` | `/rooms/:id/join` | yes | Join room |
-| `POST` | `/rooms/:id/leave` | yes | Leave room |
-| `POST` | `/reports` | yes | Report user/room `{ targetUserId, reason }` |
-| `GET` | `/reports` | admin | List reports |
-| `POST` | `/bans` | admin | Ban user |
+| Method | Path               | Auth  | Description                                                                                          |
+| ------ | ------------------ | ----- | ---------------------------------------------------------------------------------------------------- |
+| `POST` | `/auth/register`   | no    | Create account. Body `{ username, password, email? }` → `201 { user, token }`                        |
+| `POST` | `/auth/login`      | no    | Body `{ username, password }` → `{ user, token }`. Sets `Set-Cookie` alternative for browser clients |
+| `POST` | `/auth/logout`     | yes   | Invalidate current session                                                                           |
+| `GET`  | `/auth/me`         | yes   | Current user profile                                                                                 |
+| `GET`  | `/games`           | yes   | List games (from `games` + `game_versions`)                                                          |
+| `GET`  | `/games/:id`       | yes   | Game detail + versions                                                                               |
+| `GET`  | `/servers`         | yes   | List relay/region servers (from `servers` table)                                                     |
+| `GET`  | `/lobbies`         | yes   | List lobbies (filtered by `gameId?`)                                                                 |
+| `POST` | `/lobbies`         | yes   | Create lobby `{ gameId, name, maxPlayers }`                                                          |
+| `GET`  | `/lobbies/:id`     | yes   | Lobby detail + members                                                                               |
+| `POST` | `/rooms`           | yes   | Create room (match) `{ gameId, serverId? }`                                                          |
+| `GET`  | `/rooms/:id`       | yes   | Room detail + state                                                                                  |
+| `POST` | `/rooms/:id/join`  | yes   | Join room                                                                                            |
+| `POST` | `/rooms/:id/leave` | yes   | Leave room                                                                                           |
+| `POST` | `/reports`         | yes   | Report user/room `{ targetUserId, reason }`                                                          |
+| `GET`  | `/reports`         | admin | List reports                                                                                         |
+| `POST` | `/bans`            | admin | Ban user                                                                                             |
 
 All handlers: `axum::extract::State<AppState>` with `sqlx::PgPool`, validated with `serde` + `validator`, errors as `application/problem+json`.
 
@@ -418,19 +418,19 @@ Server-to-client pushes use the same envelope (server generates `request_id`). C
 
 Message types (MVP):
 
-| `type` | Direction | Payload |
-|---|---|---|
-| `presence.update` | `C↔S` | `{ status: "online"\|"away"\|"in-game", gameId?: string }` |
-| `chat.message` | `C↔S` | `{ roomId \| lobbyId, body: string }` — server fans out to room/lobby members |
-| `challenge.create` | `C→S` | `{ targetUserId, gameId, roomId? }` |
-| `challenge.accept` | `C→S` | `{ challengeId }` |
-| `challenge.decline` | `C→S` | `{ challengeId }` |
-| `challenge.cancel` | `C→S` | `{ challengeId }` |
-| `signaling.offer` | `C↔S` | `{ roomId, sdp: string }` — server relays to peer(s) in room |
-| `signaling.answer` | `C↔S` | `{ roomId, sdp: string }` |
-| `signaling.candidate` | `C↔S` | `{ roomId, candidate: string, sdpMid: string\|null, sdpMLineIndex: number\|null }` |
-| `room.state` | `S→C` | `{ roomId, state: RoomState, members: string[] }` |
-| `error` | `S→C` | `{ code: string, message: string, request_id?: string }` |
+| `type`                | Direction | Payload                                                                            |
+| --------------------- | --------- | ---------------------------------------------------------------------------------- |
+| `presence.update`     | `C↔S`     | `{ status: "online"\|"away"\|"in-game", gameId?: string }`                         |
+| `chat.message`        | `C↔S`     | `{ roomId \| lobbyId, body: string }` — server fans out to room/lobby members      |
+| `challenge.create`    | `C→S`     | `{ targetUserId, gameId, roomId? }`                                                |
+| `challenge.accept`    | `C→S`     | `{ challengeId }`                                                                  |
+| `challenge.decline`   | `C→S`     | `{ challengeId }`                                                                  |
+| `challenge.cancel`    | `C→S`     | `{ challengeId }`                                                                  |
+| `signaling.offer`     | `C↔S`     | `{ roomId, sdp: string }` — server relays to peer(s) in room                       |
+| `signaling.answer`    | `C↔S`     | `{ roomId, sdp: string }`                                                          |
+| `signaling.candidate` | `C↔S`     | `{ roomId, candidate: string, sdpMid: string\|null, sdpMLineIndex: number\|null }` |
+| `room.state`          | `S→C`     | `{ roomId, state: RoomState, members: string[] }`                                  |
+| `error`               | `S→C`     | `{ code: string, message: string, request_id?: string }`                           |
 
 In MVP the WS handler **is the relay fallback**: if two peers cannot establish direct UDP, they keep the WS open and the server forwards `signaling.*` and (optionally) game data as a last resort. This is in-process (`apps/server/src/ws/relay.rs`); `services/relay` will take over when promoted.
 
@@ -464,10 +464,10 @@ Every WS frame and every REST error body that needs correlation uses:
 ```ts
 // packages/protocol/src/envelope.ts  — mirrored in src/envelope.rs
 type Envelope<T extends string, P> = {
-  type: T;              // e.g. "signaling.offer"
-  version: number;      // 1 — bump on breaking change
-  request_id: string;   // ULID — client-generated for C→S, server-generated for S→C pushes
-  timestamp: string;    // ISO-8601 UTC — Date.toISOString() / chrono::Utc
+  type: T; // e.g. "signaling.offer"
+  version: number; // 1 — bump on breaking change
+  request_id: string; // ULID — client-generated for C→S, server-generated for S→C pushes
+  timestamp: string; // ISO-8601 UTC — Date.toISOString() / chrono::Utc
   payload: P;
 };
 ```
@@ -634,7 +634,7 @@ All three types carry `envelope.version = 1` and are validated: `roomId` must ex
 1. **Direct UDP** — try peer's advertised `host:port` from signaling.
 2. **Hole punching** — simultaneous `UDP` sends to each peer's reflexive address; 3 attempts, 500 ms apart.
 3. **STUN** — query configured STUN server (`stun:stun.openfight.local:3478` in dev, public STUN in prod) to learn reflexive address; re-attempt.
-4. **WS relay fallback** — keep `/ws` open; server forwards frames in-process. In MVP this *is* the relay. `services/relay` (openfight-relay) is a placeholder WS echo that will become a real TURN relay post-MVP without protocol change.
+4. **WS relay fallback** — keep `/ws` open; server forwards frames in-process. In MVP this _is_ the relay. `services/relay` (openfight-relay) is a placeholder WS echo that will become a real TURN relay post-MVP without protocol change.
 
 The client reports `natType` (`open | cone | symmetric | blocked`) from the STUN binding response. UI shows `Network Test` with this value.
 
@@ -755,7 +755,7 @@ players = 2
   "required": ["schema_version", "id", "name", "emulator"],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
-    "id":   { "type": "string", "pattern": "^[a-z0-9_-]+$" },
+    "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" },
     "name": { "type": "string", "minLength": 1 },
     "emulator": { "type": "string", "enum": ["fbneo", "flycast", "snes9x"] },
     "launch": {
@@ -780,7 +780,7 @@ At startup (and on Settings → Rescan) the client walks allowed ROM dirs, build
 
 ### 12.3 Catalog relationship
 
-`D:/Fightcade`'s `fbneo_roms.json` (727 KB) is the *observation* that informs which TOML files to create. The TOML set is hand-authored original data; it does not copy the JSON file.
+`D:/Fightcade`'s `fbneo_roms.json` (727 KB) is the _observation_ that informs which TOML files to create. The TOML set is hand-authored original data; it does not copy the JSON file.
 
 ---
 
@@ -797,17 +797,17 @@ Cross-cutting utilities used by both Rust and TS:
 
 ## 14. Security
 
-| Concern | Decision |
-|---|---|
-| **Password hashing** | Argon2id (`argon2` crate, `m=19456, t=2, p=1`). `password_hash` column only. |
-| **Sessions** | Opaque 32-byte random token, `SHA-256` hashed at rest (`token_hash`). Sent as `Bearer` header and `HttpOnly; Secure; SameSite=Lax` cookie alternative. `expires_at` 30 days, sliding refresh on use. |
-| **Auth middleware** | Axum extractor `AuthUser` — validates token, checks `revoked_at`, `expires_at`, loads `users` row. Fails → `401 { code:"unauthorized" }`. |
-| **Input validation** | `validator` crate on every REST body; length caps on WS `sdp`/`candidate` (16 KB), `chat.body` (2 KB), `username` (32 chars). |
-| **Process launch** | No shell, allow-listed binary path, per-arg sanitization, ROM path canonicalization inside allowed dirs (see §11.2). |
-| **Tauri permissions** | No `shell` plugin, scoped `fs` (allow `emulator/**`, `config/**`, logs; deny rest), CSP, `withGlobalTauri: false`. |
-| **CORS** | `Access-Control-Allow-Origin` limited to Tauri's custom protocol + `http://localhost:1420` in dev only. |
-| **Rate limiting** | `tower::limit` on `/auth/*` (5/min/IP) and WS `signaling.*` (60/min/user) — in-memory in MVP, no Redis. |
-| **Secrets** | `.env` never committed; `DATABASE_URL`, `JWT_SECRET` (if used for signing, not for sessions) loaded via `dotenvy`. CI uses GitHub secrets. |
+| Concern               | Decision                                                                                                                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Password hashing**  | Argon2id (`argon2` crate, `m=19456, t=2, p=1`). `password_hash` column only.                                                                                                                         |
+| **Sessions**          | Opaque 32-byte random token, `SHA-256` hashed at rest (`token_hash`). Sent as `Bearer` header and `HttpOnly; Secure; SameSite=Lax` cookie alternative. `expires_at` 30 days, sliding refresh on use. |
+| **Auth middleware**   | Axum extractor `AuthUser` — validates token, checks `revoked_at`, `expires_at`, loads `users` row. Fails → `401 { code:"unauthorized" }`.                                                            |
+| **Input validation**  | `validator` crate on every REST body; length caps on WS `sdp`/`candidate` (16 KB), `chat.body` (2 KB), `username` (32 chars).                                                                        |
+| **Process launch**    | No shell, allow-listed binary path, per-arg sanitization, ROM path canonicalization inside allowed dirs (see §11.2).                                                                                 |
+| **Tauri permissions** | No `shell` plugin, scoped `fs` (allow `emulator/**`, `config/**`, logs; deny rest), CSP, `withGlobalTauri: false`.                                                                                   |
+| **CORS**              | `Access-Control-Allow-Origin` limited to Tauri's custom protocol + `http://localhost:1420` in dev only.                                                                                              |
+| **Rate limiting**     | `tower::limit` on `/auth/*` (5/min/IP) and WS `signaling.*` (60/min/user) — in-memory in MVP, no Redis.                                                                                              |
+| **Secrets**           | `.env` never committed; `DATABASE_URL`, `JWT_SECRET` (if used for signing, not for sessions) loaded via `dotenvy`. CI uses GitHub secrets.                                                           |
 
 ---
 
@@ -889,16 +889,16 @@ No `docker-compose.override.yml` in repo; devs create it locally if needed.
 
 ## 17. Phases M0–M7 — Exit Criteria
 
-| Phase | Name | Exit Criteria |
-|---|---|---|
-| **M0** | Bootstrap | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `openfight-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts. |
-| **M1** | Protocol & DB | `packages/protocol` envelope round-trips Rust↔TS, migrations create all tables in §9, seed from `game-definitions` inserts ≥1 game, `cargo test` + `pnpm test` pass. |
-| **M2** | Auth & REST | `POST /auth/register`, `/login`, `/logout`, `GET /auth/me` work with Argon2id + opaque sessions, `GET /games`, `/servers`, `/lobbies` return seeded data, auth middleware rejects unauthenticated calls with `401`, rate limiting enforced. |
-| **M3** | Client shell | Tauri app launches, React Router renders all routes in §6.2 with mocked data, `tauri.conf.json` has no `shell` permission, `diagnose_*` commands return stub reports, `pnpm tauri dev` works on Windows. |
-| **M4** | Emulator SDK + FBNeo | `EmulatorAdapter` trait implemented for `fbneo`, `detect` finds `fcadefbneo.exe`, `validate` reports missing `neogeo.zip` correctly, `launch` spawns with no shell and per-arg escaping, `game-definitions` TOML `schema_version=1` validates, local scan marks games present/missing, safe-launch tests prove no injection. |
-| **M5** | Networking & Relay | WS `/ws` envelope works end-to-end, `signaling.offer/answer/candidate` relay through server, room state machine `WAITING→READY→PLAYING→FINISHED/CANCELLED` holds under concurrent joins, NAT fallback order verified (direct UDP → hole-punch → STUN → WS relay), `diagnose_network` reports `rtt/loss/jitter`, `services/relay` placeholder wired in Compose, `Network Test` UI passes. |
-| **M6** | Lobbies, Presence, Chat | Presence `online/away/in-game` broadcasts, `chat.message` fans out to room/lobby, `challenge.create/accept/decline/cancel` flow creates a `READY` room on accept, `reports` + `bans` enforced (banned user gets `403`), end-to-end challenge→room→signaling demo with two clients. |
-| **M7** | Hardening & Ship | `docker compose up --build` from clean clone, `tracing` JSON logs + `/metrics` + `/health`, `tauri-plugin-log` rotation, no secret in repo, `research/` excluded from `cargo package`/`tauri build`, load test: 100 concurrent WS, 20 rooms, p95 REST < 100 ms, docs complete, `CHANGELOG.md` cut. |
+| Phase  | Name                    | Exit Criteria                                                                                                                                                                                                                                                                                                                                                                            |
+| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M0** | Bootstrap               | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `openfight-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts.                                                                                                                                                                             |
+| **M1** | Protocol & DB           | `packages/protocol` envelope round-trips Rust↔TS, migrations create all tables in §9, seed from `game-definitions` inserts ≥1 game, `cargo test` + `pnpm test` pass.                                                                                                                                                                                                                     |
+| **M2** | Auth & REST             | `POST /auth/register`, `/login`, `/logout`, `GET /auth/me` work with Argon2id + opaque sessions, `GET /games`, `/servers`, `/lobbies` return seeded data, auth middleware rejects unauthenticated calls with `401`, rate limiting enforced.                                                                                                                                              |
+| **M3** | Client shell            | Tauri app launches, React Router renders all routes in §6.2 with mocked data, `tauri.conf.json` has no `shell` permission, `diagnose_*` commands return stub reports, `pnpm tauri dev` works on Windows.                                                                                                                                                                                 |
+| **M4** | Emulator SDK + FBNeo    | `EmulatorAdapter` trait implemented for `fbneo`, `detect` finds `fcadefbneo.exe`, `validate` reports missing `neogeo.zip` correctly, `launch` spawns with no shell and per-arg escaping, `game-definitions` TOML `schema_version=1` validates, local scan marks games present/missing, safe-launch tests prove no injection.                                                             |
+| **M5** | Networking & Relay      | WS `/ws` envelope works end-to-end, `signaling.offer/answer/candidate` relay through server, room state machine `WAITING→READY→PLAYING→FINISHED/CANCELLED` holds under concurrent joins, NAT fallback order verified (direct UDP → hole-punch → STUN → WS relay), `diagnose_network` reports `rtt/loss/jitter`, `services/relay` placeholder wired in Compose, `Network Test` UI passes. |
+| **M6** | Lobbies, Presence, Chat | Presence `online/away/in-game` broadcasts, `chat.message` fans out to room/lobby, `challenge.create/accept/decline/cancel` flow creates a `READY` room on accept, `reports` + `bans` enforced (banned user gets `403`), end-to-end challenge→room→signaling demo with two clients.                                                                                                       |
+| **M7** | Hardening & Ship        | `docker compose up --build` from clean clone, `tracing` JSON logs + `/metrics` + `/health`, `tauri-plugin-log` rotation, no secret in repo, `research/` excluded from `cargo package`/`tauri build`, load test: 100 concurrent WS, 20 rooms, p95 REST < 100 ms, docs complete, `CHANGELOG.md` cut.                                                                                       |
 
 No phase is considered done until its exit criteria are demonstrated on a clean machine (`git clone` → `docker compose up` → `pnpm tauri dev`).
 
@@ -919,13 +919,13 @@ A commit that implements a feature must not contain `research/` changes and must
 
 ### 18.2 Forbidden vs Allowed
 
-| Forbidden (never in repo) | Allowed |
-|---|---|
+| Forbidden (never in repo)                                                                    | Allowed                                                                 |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `fcade.exe`, `frm.exe`, `fcadefbneo.exe`, `flycast.exe`, `ggponet.dll`, `kailleraclient.dll` | Original Rust/TS code, `Cargo.toml`/`package.json` with permissive deps |
-| Any `*.zip` ROM, `neogeo.zip` BIOS, `assets/*-challenge.wav` | `packages/game-definitions/games/*.toml` (original declarative data) |
-| Credentials, session tokens, `fightcade/` replays | Public specs (GGPO, WebSocket, STUN/TURN RFCs) |
-| Decompiled `launcher.py` / `udp_client.py` source, `lib/main.js` bundle text | Docs that describe behavior in own words |
-| `D:/Fightcade` paths in code or comments | `research/` notes (gitignored from publish) |
+| Any `*.zip` ROM, `neogeo.zip` BIOS, `assets/*-challenge.wav`                                 | `packages/game-definitions/games/*.toml` (original declarative data)    |
+| Credentials, session tokens, `fightcade/` replays                                            | Public specs (GGPO, WebSocket, STUN/TURN RFCs)                          |
+| Decompiled `launcher.py` / `udp_client.py` source, `lib/main.js` bundle text                 | Docs that describe behavior in own words                                |
+| `D:/Fightcade` paths in code or comments                                                     | `research/` notes (gitignored from publish)                             |
 
 ### 18.3 Dependency hygiene
 
@@ -960,4 +960,4 @@ research/
 
 ---
 
-*End of ARCHITECTURE.md — authoritative as of 2026-08-22. Amend only by PR that updates this file and the affected crates.*
+_End of ARCHITECTURE.md — authoritative as of 2026-08-22. Amend only by PR that updates this file and the affected crates._

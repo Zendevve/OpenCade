@@ -24,7 +24,9 @@ pub struct AppState {
     /// Value: unbounded sender for [`axum::extract::ws::Message`]s to that socket.
     ///
     /// The map is wrapped in [`std::sync::Arc`] so `AppState::clone` is cheap.
-    pub ws_hub: std::sync::Arc<dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>>,
+    pub ws_hub: std::sync::Arc<
+        dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>,
+    >,
 }
 
 impl AppState {
@@ -70,10 +72,14 @@ mod tests {
 
         // Verify that DashMap + Arc are the expected concrete types by
         // checking that the field can be constructed independently.
-        let hub: std::sync::Arc<dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>> =
-            std::sync::Arc::new(dashmap::DashMap::new());
+        let hub: std::sync::Arc<
+            dashmap::DashMap<
+                String,
+                tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>,
+            >,
+        > = std::sync::Arc::new(dashmap::DashMap::new());
         assert_eq!(hub.len(), 0);
         // Suppress unused warning for PgPool import
-        let _ = std:: any::type_name::<PgPool>();
+        let _ = std::any::type_name::<PgPool>();
     }
 }

@@ -39,12 +39,12 @@ If you are unsure where to start, look for issues labelled `good first issue` or
 
 ## Prerequisites
 
-| Tool | Minimum version | Notes |
-|------|-----------------|-------|
-| Rust | stable (rustup) | `cargo fmt`, `cargo clippy` required |
-| Node.js | 20 LTS | `pnpm` is the package manager |
-| pnpm | 9.x | `corepack enable` or `npm i -g pnpm` |
-| PostgreSQL | 16 | only for server work; or use `docker compose up -d postgres` |
+| Tool       | Minimum version    | Notes                                                             |
+| ---------- | ------------------ | ----------------------------------------------------------------- |
+| Rust       | stable (rustup)    | `cargo fmt`, `cargo clippy` required                              |
+| Node.js    | 20 LTS             | `pnpm` is the package manager                                     |
+| pnpm       | 9.x                | `corepack enable` or `npm i -g pnpm`                              |
+| PostgreSQL | 16                 | only for server work; or use `docker compose up -d postgres`      |
 | Tauri deps | WebView2 (Win 10+) | See [Tauri prerequisites](https://tauri.app/start/prerequisites/) |
 
 ```powershell
@@ -96,13 +96,13 @@ Create branches from `main`. Use the prefix + short kebab-case slug:
 <type>/<scope>-<short-description>
 ```
 
-| Prefix | Use |
-|--------|-----|
-| `feat/` | New feature |
-| `fix/` | Bug fix |
-| `docs/` | Documentation only |
-| `chore/` | Tooling, CI, deps, chores |
-| `refactor/` | Behaviour-preserving restructure |
+| Prefix      | Use                                                      |
+| ----------- | -------------------------------------------------------- |
+| `feat/`     | New feature                                              |
+| `fix/`      | Bug fix                                                  |
+| `docs/`     | Documentation only                                       |
+| `chore/`    | Tooling, CI, deps, chores                                |
+| `refactor/` | Behaviour-preserving restructure                         |
 | `research/` | Research-only notes (never ships to `apps/`/`packages/`) |
 
 Examples:
@@ -165,9 +165,9 @@ Observation → Documentation → Design → Implementation
 
 1. **Observation** — Interact with the proprietary platform as a black box. Record what you see: packet captures, UI screenshots, log excerpts, timing. Put raw evidence under `research/observations/`, `research/network/`, or `research/protocol/` — these directories are **never shipped** and are gitignored for binaries.
 
-2. **Documentation** — Write a short note in `research/notes/` or `research/behavior/` describing the observed behaviour, the evidence, your confidence (Low / Medium / High), and the *implementation implication* in your own words. Example template is in `research/GUARDRAILS.md`.
+2. **Documentation** — Write a short note in `research/notes/` or `research/behavior/` describing the observed behaviour, the evidence, your confidence (Low / Medium / High), and the _implementation implication_ in your own words. Example template is in `research/GUARDRAILS.md`.
 
-3. **Design** — In the PR or a `docs/` ADR, describe the OpenFight design you propose *without referencing proprietary source*. Cite only your observation note and public specs.
+3. **Design** — In the PR or a `docs/` ADR, describe the OpenFight design you propose _without referencing proprietary source_. Cite only your observation note and public specs.
 
 4. **Implementation** — Write original Rust / TypeScript from the design. Do not copy decompiled output, do not paraphrase `lib/main.js`, do not look at `fcade.exe` strings while coding.
 
@@ -276,4 +276,3 @@ Draft PRs are welcome for early feedback — mark as `Draft` and note what is st
 ---
 
 Thank you for building OpenFight the right way — original code, open protocol, self-hostable infrastructure.
-

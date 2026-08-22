@@ -57,27 +57,33 @@ Write a note in `research/notes/` or `research/behavior/` using this template:
 
 ```markdown
 # Observation: <short title>
+
 Date: YYYY-MM-DD
 Observer: <name>
 Source: D:/Fightcade — <version, e.g. 2.1.45> / public spec
 
 ## Observation
+
 <One paragraph: what happened, in your own words.>
 
 ## Evidence
+
 - Packet capture: research/network/2026-08-22-lobby-join.pcapng
 - Log excerpt: research/observations/2026-08-22-auth-flow.md:12-34
 - Screenshot: research/observations/2026-08-22-lobby.png
 
 ## Confidence
+
 High | Medium | Low — and why.
 
 ## Implementation Implication
+
 <What OpenFight needs to do, without copying proprietary details.>
 Example: "OpenFight requires a persistent WebSocket after authentication
 for presence/chat/signaling; the exact frame format is TBD via public design."
 
 ## References
+
 - Public spec: RFC 5389 §...
 - GGPO open-source docs: ...
 ```
@@ -107,16 +113,16 @@ For protocol / networking work the **ideal** is two different contributors: one 
 
 The following must **never** appear in any commit, PR, issue attachment, or release artefact. CI includes a blocklist scan and review will reject them.
 
-| Category | Examples | Why |
-|----------|----------|-----|
-| **Proprietary executables** | `fcade.exe`, `fcadefbneo.exe`, `frm.exe`, `Fightcade*.exe`, `fcade-upd.exe`, `fc2-electron.exe` | Fightcade binaries are proprietary |
-| **Proprietary libraries** | `ggponet.dll`, `ggpo*.dll`, `kailleraclient.dll`, `kaillera*.dll`, any `*.dll` from `D:/Fightcade/emulator/` | Proprietary netcode libraries |
-| **Electron wrapper source** | `fc2-electron/resources/app/lib/main.js`, `fc2-electron/resources/app/lib/static/login.js`, any `*.asar` unpack | Proprietary client source |
-| **ROMs / disk images** | `*.zip`, `*.7z`, `*.chd`, `*.iso`, `*.cue`, `*.gdi` containing game data; `emulator/fbneo_roms.json` / `snes9x_roms.json` etc. copied verbatim | Copyrighted game content |
-| **Proprietary assets** | `assets/*.wav` (e.g. `kof98-challenge.wav`, `sfiii3-challenge.wav`), `assets/*.ico`, `assets/icon-128.png` from Fightcade | Proprietary media |
-| **Credentials / secrets** | API keys, tokens, passwords, `.env` with real values, `%APPDATA%/OpenFight/` dumps, WebSocket auth headers with secrets | Security |
-| **Decompiled output** | Any file derived from decompiling / transcribing `fcade.exe`, `ggponet.dll`, or `lib/main.js` | Clean-room violation |
-| **Research binaries** | Anything under `research/binaries/` | Must stay local; directory is gitignored |
+| Category                    | Examples                                                                                                                                       | Why                                      |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| **Proprietary executables** | `fcade.exe`, `fcadefbneo.exe`, `frm.exe`, `Fightcade*.exe`, `fcade-upd.exe`, `fc2-electron.exe`                                                | Fightcade binaries are proprietary       |
+| **Proprietary libraries**   | `ggponet.dll`, `ggpo*.dll`, `kailleraclient.dll`, `kaillera*.dll`, any `*.dll` from `D:/Fightcade/emulator/`                                   | Proprietary netcode libraries            |
+| **Electron wrapper source** | `fc2-electron/resources/app/lib/main.js`, `fc2-electron/resources/app/lib/static/login.js`, any `*.asar` unpack                                | Proprietary client source                |
+| **ROMs / disk images**      | `*.zip`, `*.7z`, `*.chd`, `*.iso`, `*.cue`, `*.gdi` containing game data; `emulator/fbneo_roms.json` / `snes9x_roms.json` etc. copied verbatim | Copyrighted game content                 |
+| **Proprietary assets**      | `assets/*.wav` (e.g. `kof98-challenge.wav`, `sfiii3-challenge.wav`), `assets/*.ico`, `assets/icon-128.png` from Fightcade                      | Proprietary media                        |
+| **Credentials / secrets**   | API keys, tokens, passwords, `.env` with real values, `%APPDATA%/OpenFight/` dumps, WebSocket auth headers with secrets                        | Security                                 |
+| **Decompiled output**       | Any file derived from decompiling / transcribing `fcade.exe`, `ggponet.dll`, or `lib/main.js`                                                  | Clean-room violation                     |
+| **Research binaries**       | Anything under `research/binaries/`                                                                                                            | Must stay local; directory is gitignored |
 
 Additional blocked patterns enforced by `.gitignore` and CI:
 
@@ -131,7 +137,7 @@ fcade*.exe  ggponet.dll  kailleraclient.dll
 .env  *.pem  *.key  *.log
 ```
 
-If you need to reference a filename for documentation (e.g. "the file `ggponet.dll` was observed in `emulator/fbneo/`"), mentioning the *name* in prose is allowed. Committing the *file* is not.
+If you need to reference a filename for documentation (e.g. "the file `ggponet.dll` was observed in `emulator/fbneo/`"), mentioning the _name_ in prose is allowed. Committing the _file_ is not.
 
 ### Specifically Forbidden — Do Not Even Locally Stage
 
@@ -150,15 +156,15 @@ These exact files from `D:/Fightcade` (non-exhaustive):
 
 ## 4. What IS Allowed
 
-| Category | Allowed | Conditions |
-|----------|---------|------------|
-| **Original code** | All Rust / TypeScript you write from scratch for OpenFight | Must be your original work or properly attributed; licensed Apache-2.0 |
-| **Permissively licensed deps** | Crates / npm packages under Apache-2.0, MIT, BSD, ISC | Must be declared in `Cargo.toml` / `package.json`; `cargo deny` / `pnpm audit` clean |
-| **Public specifications** | GGPO rollback concepts (public docs), STUN **RFC 5389**, TURN **RFC 5766**, WebSocket **RFC 6455**, HTTP, etc. | Cite the RFC / public doc; do not cite proprietary source as authority |
-| **FBNeo training-mode Lua — shape reference only** | The *structure* of open-source Lua training-mode scripts (e.g. function names, menu shape) as a reference for adapter design | **Shape only, under its own license.** Do not copy implementation. Link to the upstream repo and note the license. Prefer re-deriving from public FBNeo docs |
-| **Observation notes** | Your own `research/notes/*.md`, `research/observations/*.md`, `research/protocol/*.md` | Must follow the template in §2; no proprietary source pasted |
-| **Game definitions you author** | Hand-written `packages/game-definitions/games/*.toml` per the schema in PRD §17 | Declarative, validated; `id`, `name`, `emulator`, `[launch]`, `[validation]` |
-| **Local importer output (with review)** | TOML generated locally by the importer that converts `D:/Fightcade/emulator/*.json` | The importer itself may be committed; its **output TOML must not be committed without maintainer review** (see §5) |
+| Category                                           | Allowed                                                                                                                      | Conditions                                                                                                                                                   |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Original code**                                  | All Rust / TypeScript you write from scratch for OpenFight                                                                   | Must be your original work or properly attributed; licensed Apache-2.0                                                                                       |
+| **Permissively licensed deps**                     | Crates / npm packages under Apache-2.0, MIT, BSD, ISC                                                                        | Must be declared in `Cargo.toml` / `package.json`; `cargo deny` / `pnpm audit` clean                                                                         |
+| **Public specifications**                          | GGPO rollback concepts (public docs), STUN **RFC 5389**, TURN **RFC 5766**, WebSocket **RFC 6455**, HTTP, etc.               | Cite the RFC / public doc; do not cite proprietary source as authority                                                                                       |
+| **FBNeo training-mode Lua — shape reference only** | The _structure_ of open-source Lua training-mode scripts (e.g. function names, menu shape) as a reference for adapter design | **Shape only, under its own license.** Do not copy implementation. Link to the upstream repo and note the license. Prefer re-deriving from public FBNeo docs |
+| **Observation notes**                              | Your own `research/notes/*.md`, `research/observations/*.md`, `research/protocol/*.md`                                       | Must follow the template in §2; no proprietary source pasted                                                                                                 |
+| **Game definitions you author**                    | Hand-written `packages/game-definitions/games/*.toml` per the schema in PRD §17                                              | Declarative, validated; `id`, `name`, `emulator`, `[launch]`, `[validation]`                                                                                 |
+| **Local importer output (with review)**            | TOML generated locally by the importer that converts `D:/Fightcade/emulator/*.json`                                          | The importer itself may be committed; its **output TOML must not be committed without maintainer review** (see §5)                                           |
 
 ### Public Specs — Preferred References
 
@@ -178,7 +184,7 @@ When a behaviour can be explained by a public spec, cite the spec as the source 
 **Rule:**
 
 - You MAY write and commit an **importer tool** (e.g. `packages/game-definitions/importer/` or `tools/import-fbneo/`) that **locally** reads `D:/Fightcade/emulator/*.json` and emits declarative TOML per PRD §17. The importer must be original code.
-- You MUST NOT commit the importer's output TOML en masse without review. Generated files are **local-only** until a maintainer has reviewed a *small, representative sample* for licensing, accuracy, and schema compliance.
+- You MUST NOT commit the importer's output TOML en masse without review. Generated files are **local-only** until a maintainer has reviewed a _small, representative sample_ for licensing, accuracy, and schema compliance.
 - The importer must not embed or copy large JSON fragments as literals in the repository. It reads them at runtime from the user's local `D:/Fightcade` path, which is gitignored.
 - If sample TOML is approved, it should be hand-curated and attributed as "derived from local observation of emulator manifests; independently authored TOML" — not a verbatim JSON-to-TOML dump.
 
@@ -265,5 +271,4 @@ Ask before you commit. Open a `research/` discussion issue or ping a maintainer.
 
 ---
 
-*Last updated: 2026-08-22 — PRD v MVP Specification (Phase 0). Keep this file in sync with `CONTRIBUTING.md` and `.gitignore`.*
-
+_Last updated: 2026-08-22 — PRD v MVP Specification (Phase 0). Keep this file in sync with `CONTRIBUTING.md` and `.gitignore`._

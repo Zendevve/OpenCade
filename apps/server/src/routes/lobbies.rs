@@ -6,7 +6,7 @@ use axum::{
 };
 use openfight_protocol::{Envelope, PresencePayload};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tracing::info;
 
 use crate::error::AppError;

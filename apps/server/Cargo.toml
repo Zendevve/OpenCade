@@ -27,3 +27,6 @@ sha2 = "0.10"
 dashmap = "5"
 thiserror = "1"
 openfight-protocol = { path = "../../packages/protocol" }
+
+[dev-dependencies]
+serial_test = "3"

@@ -1,0 +1,15 @@
+{
+  "name": "openfight",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.9",
+  "description": "OpenFight monorepo root",
+  "scripts": {
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "build": "echo \"root build: workspace members build via cargo and pnpm -r\" && pnpm -r --if-present build"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

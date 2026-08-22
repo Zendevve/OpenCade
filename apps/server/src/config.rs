@@ -4,6 +4,7 @@
 //! In production every value should be supplied via the environment
 //! or a `.env` file (loaded by `dotenvy` in `main.rs`).
 
+
 use std::env;
 
 /// Application configuration.
@@ -48,12 +49,10 @@ impl Config {
     /// - `PORT` → `8080` (invalid integers also fall back to `8080`)
     /// - `RUST_LOG` → `info`
     pub fn from_env() -> Self {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://openfight:openfight@db:5432/openfight".to_string()
-        });
+        let database_url = env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://openfight:openfight@db:5432/openfight".to_string());
 
-        let session_secret =
-            env::var("SESSION_SECRET").unwrap_or_else(|_| "change-me".to_string());
+        let session_secret = env::var("SESSION_SECRET").unwrap_or_else(|_| "change-me".to_string());
 
         let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 
@@ -80,13 +79,15 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use serial_test::serial;
+use std::env;
 
     // Helper to run a test with a clean env, restoring afterwards would be
     // ideal but tests run with --test-threads=1 in CI; we take care to
     // remove keys we set so parallel runs do not leak.
 
     #[test]
+    #[serial]
     fn defaults_when_env_missing() {
         // Ensure keys are absent
         env::remove_var("DATABASE_URL");
@@ -105,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn reads_from_env() {
         env::set_var("DATABASE_URL", "postgres://user:pass@db:5432/testdb");
         env::set_var("SESSION_SECRET", "super-secret");
@@ -112,10 +114,7 @@ mod tests {
         env::set_var("RUST_LOG", "debug");
 
         let cfg = Config::from_env();
-        assert_eq!(
-            cfg.database_url,
-            "postgres://user:pass@db:5432/testdb"
-        );
+        assert_eq!(cfg.database_url, "postgres://user:pass@db:5432/testdb");
         assert_eq!(cfg.session_secret, "super-secret");
         assert_eq!(cfg.port, 3001);
         assert_eq!(cfg.rust_log, "debug");
@@ -128,6 +127,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn invalid_port_falls_back() {
         env::set_var("PORT", "not-a-number");
         // set other vars to defaults so test is isolated
@@ -142,6 +142,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn port_boundary_values() {
         env::set_var("PORT", "0");
         assert_eq!(Config::from_env().port, 0);

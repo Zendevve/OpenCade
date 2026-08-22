@@ -156,15 +156,13 @@ pub async fn login(
     let token_hash = hash_token_sha256(&token);
     let expires_at = chrono::Utc::now() + chrono::Duration::days(7);
 
-    sqlx::query(
-        "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-    )
-    .bind(user_id)
-    .bind(&token_hash)
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("database error: {}", e)))?;
+    sqlx::query("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(&token_hash)
+        .bind(expires_at)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("database error: {}", e)))?;
 
     info!(user_id = %user_id, "auth: user logged in");
 
