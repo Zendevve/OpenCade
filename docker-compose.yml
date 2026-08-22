@@ -1,0 +1,64 @@
+name: openfight
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openfight
+      POSTGRES_PASSWORD: openfight
+      POSTGRES_DB: openfight
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openfight -d openfight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  openfight-server:
+    build:
+      context: .
+      dockerfile: ./apps/server/Dockerfile
+    image: openfight-server:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://openfight:openfight@db:5432/openfight
+      RUST_LOG: info
+      # SESSION_SECRET must be overridden in production via .env
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Relay (TURN/STUN) placeholder — uncomment when openfight-relay is implemented.
+  # See services/relay/ for the future relay crate.
+  # relay:
+  #   build:
+  #     context: .
+  #     dockerfile: ./services/relay/Dockerfile
+  #   image: openfight-relay:local
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - openfight-server
+  #   environment:
+  #     RUST_LOG: info
+  #   ports:
+  #     - "3478:3478"
+  #     - "3478:3478/udp"
+  #     - "49152-49200:49152-49200/udp"
+
+volumes:
+  pgdata:
+    driver: local

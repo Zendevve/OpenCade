@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+
+# --- builder ---------------------------------------------------------------
+FROM rust:1.78-bookworm AS builder
+WORKDIR /app
+
+# Cache dependency build: copy manifests first
+COPY Cargo.toml Cargo.lock ./
+COPY apps/server/Cargo.toml apps/server/Cargo.toml
+COPY packages/protocol/Cargo.toml packages/protocol/Cargo.toml
+COPY packages/networking/Cargo.toml packages/networking/Cargo.toml
+COPY packages/emulator-sdk/Cargo.toml packages/emulator-sdk/Cargo.toml
+COPY packages/shared/Cargo.toml packages/shared/Cargo.toml
+COPY adapters/fbneo/Cargo.toml adapters/fbneo/Cargo.toml
+# Create stub sources so `cargo build` can resolve the workspace graph
+RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
+             packages/emulator-sdk/src packages/shared/src adapters/fbneo/src \
+    && echo "fn main() {}" > apps/server/src/main.rs \
+    && echo "" > packages/protocol/src/lib.rs \
+    && echo "" > packages/networking/src/lib.rs \
+    && echo "" > packages/emulator-sdk/src/lib.rs \
+    && echo "" > packages/shared/src/lib.rs \
+    && echo "" > adapters/fbneo/src/lib.rs \
+    && cargo build --release 2>/dev/null || true
+
+# Now copy the real sources
+COPY . .
+
+# Build the server binary (adjust package name if different)
+RUN cargo build --release -p openfight-server \
+    && ls -lh target/release/openfight-server* 2>/dev/null || ls -lh target/release/
+
+# --- runtime ---------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN useradd -m -u 10001 openfight
+WORKDIR /app
+
+COPY --from=builder /app/target/release/openfight-server /usr/local/bin/openfight-server
+# If workspace binary is named differently, the fallback below helps debug:
+# COPY --from=builder /app/target/release/server /usr/local/bin/openfight-server
+
+# Migrations / static assets if present
+COPY --from=builder /app/apps/server/migrations ./migrations
+
+USER openfight
+EXPOSE 8080
+ENV RUST_LOG=info
+ENV DATABASE_URL=postgres://openfight:openfight@db:5432/openfight
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
+  CMD wget -qO- http://localhost:8080/health || exit 1
+
+CMD ["openfight-server"]

@@ -1,0 +1,14 @@
+# Clippy configuration for OpenFight
+# See https://doc.rust-lang.org/clippy/configuration.html
+# This file is read by `cargo clippy` at workspace root.
+# An identical copy at `clippy.toml` is kept for tooling that only looks there.
+
+msrv = "1.78"
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+single-char-binding-names-threshold = 0
+disallowed-names = ["foo", "baz", "quux"]
+allow-mixed-uninlined-format-args = false
+allow-print-in-tests = true
+allow-useless-vec-in-tests = true

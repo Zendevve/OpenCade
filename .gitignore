@@ -1,0 +1,188 @@
+# ──────────────────────────────────────────────────────────────
+# OpenFight — .gitignore
+# Keep the repository free of build artefacts, secrets,
+# proprietary binaries, ROMs, and user-local state.
+# ──────────────────────────────────────────────────────────────
+
+# ── Rust / Cargo ─────────────────────────────────────────────
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+# Keep Cargo.lock for binaries (apps/client, apps/server, services/relay)
+# but ignore for libraries if they opt in via negation below.
+# Uncomment to track library locks: !packages/**/Cargo.lock
+
+# ── Node / pnpm / TypeScript ─────────────────────────────────
+node_modules/
+.pnp/
+.pnp.js
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+
+# pnpm
+.pnpm-store/
+pnpm-lock.yaml
+# Keep pnpm-lock.yaml — remove the line above if you want to ignore it
+# .pnpm-debug.log is covered by *.log
+
+# ── Tauri ────────────────────────────────────────────────────
+apps/client/src-tauri/target/
+apps/client/dist/
+apps/client/bundle/
+
+# ── Environment / Secrets ────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.toml
+config.local.toml
+
+ lifting
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# ── OS / Editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/*.code-snippets
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ── Research workspace — never ship observations/binaries ────
+research/binaries/
+research/binaries/**
+research/*.pcap
+research/*.pcapng
+research/network/captures/
+research/protocol/dumps/
+
+# Allow placeholders so the directory structure stays in git
+!research/binaries/.gitkeep
+!research/observations/.gitkeep
+!research/protocol/.gitkeep
+!research/network/.gitkeep
+!research/behavior/.gitkeep
+!research/notes/.gitkeep
+
+# ── OpenFight user data (mirrors %APPDATA%/OpenFight/) ──────
+# Developers may run the app locally; never commit its state.
+OpenFight/
+%APPDATA%/OpenFight/
+AppData/
+*.openfight/
+config.toml
+config.local.toml
+
+# ── Emulator / ROM directories ────────────────────────────────
+# User-provided content — never committed.
+emulator/
+emulators/
+ROMs/
+roms/
+rom/
+ROMS/
+games/roms/
+fbneo/roms/
+mame/roms/
+retroarch/roms/
+
+# ROM and disk images
+*.zip
+*.7z
+*.rar
+*.chd
+*.iso
+*.cue
+*.gdi
+*.bin
+*.dat
+# Exception: allow non-ROM zips that are part of source (none by default)
+# Negate selectively if needed: !docs/assets/example.zip
+
+# ── Proprietary Fightcade / third-party binaries ─────────────
+# Never redistribute Fightcade binaries or derived artefacts.
+fcade.exe
+fcadefbneo.exe
+fcade*.exe
+frm.exe
+Fightcade*.exe
+fcade-upd.exe
+ggponet.dll
+ggpo*.dll
+kailleraclient.dll
+kaillera*.dll
+*.dll
+!swiftshader/**/*.dll
+# If you need to allow a specific open-source dll, negate it:
+# !packages/networking/vendor/open.dll
+
+# Electron / Nativefier leftovers from the reference install
+fc2-electron/
+resources/app/lib/main.js
+resources/app/lib/static/login.js
+
+# ── Audio / proprietary assets ───────────────────────────────
+# Challenge sounds and other Fightcade assets are proprietary.
+assets/*.wav
+*.wav
+*.mp3
+*.ogg
+*.flac
+assets/*.ico
+assets/*.png
+!apps/client/src/assets/*.png
+!apps/client/public/*.png
+
+# ── Coverage / test artefacts ────────────────────────────────
+coverage/
+.nyc_output/
+lcov.info
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml
+
+# ── Docker / DB ──────────────────────────────────────────────
+postgres_data/
+pgdata/
+.docker/
+docker/postgres_data/
+
+# ── Misc ─────────────────────────────────────────────────────
+.tmp/
+temp/
+tmp/
+*.tmp
+*.bak
+*.orig
