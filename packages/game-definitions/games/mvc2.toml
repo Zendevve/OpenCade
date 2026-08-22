@@ -1,0 +1,15 @@
+schema_version = 1
+id = "mvc2"
+name = "Marvel vs. Capcom 2"
+emulator = "flycast"
+
+[launch]
+args = ["-rom", "{rom}", "-window"]
+
+[validation]
+required_files = ["mvc2.zip"]
+
+[metadata]
+year = 2000
+developer = "Capcom"
+players = 2

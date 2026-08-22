@@ -5,6 +5,7 @@ members = [
     "packages/networking",
     "packages/emulator-sdk",
     "packages/shared",
+    "packages/game-definitions",
     "adapters/fbneo",
 ]
 resolver = "2"

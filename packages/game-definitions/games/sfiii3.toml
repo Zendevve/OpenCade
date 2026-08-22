@@ -1,0 +1,16 @@
+schema_version = 1
+id = "sfiii3"
+name = "Street Fighter III: 3rd Strike"
+emulator = "fbneo"
+
+[launch]
+args = ["-rom", "{rom}", "-window"]
+
+[validation]
+required_files = ["sfiii3.zip", "neogeo.zip"]
+bios = "neogeo.zip"
+
+[metadata]
+year = 1999
+developer = "Capcom"
+players = 2

@@ -1,0 +1,25 @@
+{
+  "name": "@openfight/protocol",
+  "version": "0.1.0",
+  "description": "OpenFight versioned protocol envelope (TypeScript mirror of Rust crate)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  },
+  "license": "Apache-2.0"
+}

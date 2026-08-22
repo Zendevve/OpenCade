@@ -108,10 +108,14 @@ pub struct SessionPayload {
 }
 
 /// Room lifecycle states. Serialized as `snake_case` strings.
+/// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);
+/// AGENTS.md describes WAITING→CHALLENGING→CONNECTING→PLAYING→FINISHED|CANCELLED.
+/// Rust payload is snake_case lowercase for the wire; `Ready` is kept for compat with ARCH's READY.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoomState {
     Waiting,
+    Ready,
     Challenging,
     Connecting,
     Playing,
@@ -225,6 +229,7 @@ mod tests {
     fn room_state_variants_serde() {
         let cases = vec![
             (RoomState::Waiting, "waiting"),
+            (RoomState::Ready, "ready"),
             (RoomState::Challenging, "challenging"),
             (RoomState::Connecting, "connecting"),
             (RoomState::Playing, "playing"),

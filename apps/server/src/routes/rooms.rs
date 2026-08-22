@@ -24,8 +24,9 @@ fn resolve_host_id(headers: &HeaderMap) -> String {
 }
 
 fn parse_room_state(s: &str) -> RoomState {
-    match s {
+    match s.to_ascii_lowercase().as_str() {
         "waiting" => RoomState::Waiting,
+        "ready" => RoomState::Ready,
         "challenging" => RoomState::Challenging,
         "connecting" => RoomState::Connecting,
         "playing" => RoomState::Playing,
@@ -38,6 +39,7 @@ fn parse_room_state(s: &str) -> RoomState {
 fn room_state_to_str(state: &RoomState) -> &'static str {
     match state {
         RoomState::Waiting => "waiting",
+        RoomState::Ready => "ready",
         RoomState::Challenging => "challenging",
         RoomState::Connecting => "connecting",
         RoomState::Playing => "playing",
