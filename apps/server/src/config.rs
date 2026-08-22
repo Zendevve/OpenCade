@@ -4,7 +4,6 @@
 //! In production every value should be supplied via the environment
 //! or a `.env` file (loaded by `dotenvy` in `main.rs`).
 
-
 use std::env;
 
 /// Application configuration.
@@ -80,7 +79,7 @@ impl Default for Config {
 mod tests {
     use super::*;
     use serial_test::serial;
-use std::env;
+    use std::env;
 
     // Helper to run a test with a clean env, restoring afterwards would be
     // ideal but tests run with --test-threads=1 in CI; we take care to
