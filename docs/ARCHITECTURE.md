@@ -473,24 +473,27 @@ type Envelope<T extends string, P> = {
 ```
 
 ```rust
-// packages/protocol/src/envelope.rs
+// packages/protocol/src/lib.rs — canonical envelope (authoritative)
 #[derive(Serialize, Deserialize)]
-pub struct Envelope<T, P> {
-    pub r#type: T,
-    pub version: u32,
-    pub request_id: String, // ULID
+pub struct Envelope<T = Value> {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub version: String, // "1.0" canonical, "1" compat via is_supported_version
+    pub request_id: String,
     pub timestamp: DateTime<Utc>,
-    pub payload: P,
+    pub payload: T,
 }
+pub const PROTOCOL_VERSION: &str = "1.0";
+pub fn is_supported_version(v: &str) -> bool { v == "1.0" || v == "1" }
 ```
 
-Rules: `version` is `1` for all messages in MVP. Unknown `type` → `error { code:"unknown_type" }`. Unknown `version` → `error { code:"unsupported_version" }`. `request_id` is echoed in errors so clients can correlate.
+Rules: `version` is `"1.0"` canonical for all messages in MVP (compat `"1"` accepted). Unknown `type` → `error { code:"unknown_type" }`. Unknown `version` → `error { code:"version_unsupported" }`. `request_id` is echoed in errors so clients can correlate.
 
 ### 8.2 Versioning
 
-- `packages/protocol/src/version.ts` / `version.rs` exports `PROTOCOL_VERSION = 1`.
-- Server accepts `version: 1` only; higher versions get `unsupported_version`.
-- Additive fields inside `payload` are allowed (clients ignore unknown keys). Breaking renames require a version bump and a migration window.
+- `packages/protocol/src/lib.rs` exports `pub const PROTOCOL_VERSION: &str = "1.0"` and `pub fn is_supported_version(v:&str)->bool` (accepts `"1.0"` and `"1"`).
+- Server accepts `version: "1.0"` (compat `"1"`); higher versions get `version_unsupported` (`is_supported_version` returns false).
+- Additive fields inside `payload` are allowed (clients ignore unknown keys). Breaking renames require a version bump to `"2.0"` and a migration window.
 
 ---
 
