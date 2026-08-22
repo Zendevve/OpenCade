@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+> **Community:** https://discord.gg/Y4rDyTScPe — where we discuss OpenFight and everything around it (not only OpenFight).
+
 ## Project Overview
 
 OpenFight — open-source arcade netplay platform, clean-room alternative to proprietary Fightcade. Monorepo at `D:/OpenFight` (Apache-2.0) with Tauri + React + TypeScript client and Rust + Axum + PostgreSQL server. `D:/Fightcade` (v2.1.45) is **read-only reference** — never copied into this repo (see `docs/ARCHITECTURE.md §2` and `docs/reference-fightcade-install.md`). Goal: lobby → challenge → versioned signaling → P2P (or WS relay) → safe emulator launch.

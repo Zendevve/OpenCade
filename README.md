@@ -1,6 +1,7 @@
 # OpenFight
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/Y4rDyTScPe)
 ![Status](https://img.shields.io/badge/status-MVP%20spec-orange)
 ![Spec](https://img.shields.io/badge/spec-v0.1-lightgrey)
 
@@ -152,9 +153,13 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
 
-## Contributing
+## Community
 
-See `CONTRIBUTING.md` (coming in M0). By contributing you agree to the clean-room rules and that your contributions are licensed under Apache-2.0.
+**Discord — where we discuss OpenFight and everything around it (not only OpenFight):** https://discord.gg/Y4rDyTScPe
+
+General dev chat, architecture questions, emulator adapter ideas, and matchmaking talk — all in one place.
+
+## Contributing
 
 ## Security
 
