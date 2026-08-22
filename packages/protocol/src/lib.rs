@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use uuid::Uuid;
 
 /// Canonical protocol version. All messages SHOULD use this value.
@@ -19,9 +20,9 @@ pub const PROTOCOL_VERSION: &str = "1.0";
 pub fn is_supported_version(v: &str) -> bool {
     v == "1.0" || v == "1"
 }
-
 /// Versioned envelope wrapping every protocol message.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/Envelope.ts", concrete(T = String))]
 pub struct Envelope<T = serde_json::Value> {
     /// Discriminator for message kind, e.g. `lobby.create`, `challenge.offer`.
     #[serde(rename = "type")]
@@ -33,6 +34,7 @@ pub struct Envelope<T = serde_json::Value> {
     /// RFC 3339 timestamp (UTC).
     pub timestamp: DateTime<Utc>,
     /// Arbitrary payload.
+    #[ts(type = "unknown")]
     pub payload: T,
 }
 
@@ -66,9 +68,9 @@ impl<T> Envelope<T> {
 // ---------------------------------------------------------------------------
 // Payloads
 // ---------------------------------------------------------------------------
-
 /// Presence / latency update. Mirrors `diagnose_network` and `presence.update`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "src/generated/PresencePayload.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct PresencePayload {
     pub user_id: String,
@@ -77,18 +79,18 @@ pub struct PresencePayload {
     pub jitter: u32,
     pub relay_reachable: bool,
 }
-
 /// Chat message. Used for `chat.message` in rooms/lobbies.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/ChatPayload.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct ChatPayload {
     pub channel: String,
     pub body: String,
     pub author_id: String,
 }
-
 /// Challenge request between two users for a game/room.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/ChallengePayload.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct ChallengePayload {
     pub room_id: String,
@@ -96,9 +98,9 @@ pub struct ChallengePayload {
     pub challenger_id: String,
     pub challenged_id: String,
 }
-
 /// WebRTC / signaling payload: offer/answer/candidate relayed via server.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/SessionPayload.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct SessionPayload {
     pub room_id: String,
@@ -106,12 +108,12 @@ pub struct SessionPayload {
     pub sdp: String,
     pub candidate: String,
 }
-
 /// Room lifecycle states. Serialized as `snake_case` strings.
 /// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);
 /// AGENTS.md describes WAITING→CHALLENGING→CONNECTING→PLAYING→FINISHED|CANCELLED.
 /// Rust payload is snake_case lowercase for the wire; `Ready` is kept for compat with ARCH's READY.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/RoomState.ts")]
 #[serde(rename_all = "snake_case")]
 pub enum RoomState {
     Waiting,
@@ -122,9 +124,9 @@ pub enum RoomState {
     Finished,
     Cancelled,
 }
-
 /// Room snapshot pushed via `room.state`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "src/generated/RoomPayload.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct RoomPayload {
     pub id: String,

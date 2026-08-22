@@ -5,3 +5,5 @@ build
 pnpm-lock.yaml
 Cargo.lock
 *.rs.bk
+packages/protocol/bindings
+packages/protocol/src/generated

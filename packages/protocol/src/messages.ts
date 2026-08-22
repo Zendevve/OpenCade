@@ -37,6 +37,7 @@ export type SessionPayload = {
 
 export type RoomState =
   | "waiting"
+  | "ready"
   | "challenging"
   | "connecting"
   | "playing"

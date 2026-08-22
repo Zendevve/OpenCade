@@ -119,4 +119,18 @@ describe("envelope roundtrip", () => {
   it("rejects invalid shape", () => {
     expect(() => parseEnvelope('{"type":"x"}')).toThrow();
   });
+  it("roundtrips room state ready", () => {
+    const room: RoomPayload = {
+      id: "room-1",
+      game_id: "kof98",
+      host_id: "user-1",
+      state: "ready",
+    };
+    const env = createEnvelope("room.state", room);
+    const raw = serializeEnvelope(env);
+    const back = parseEnvelope<RoomPayload>(raw);
+    expect(back.payload).toEqual(room);
+    expect(back.payload.state).toBe("ready");
+    expect(validateEnvelope(back)).toEqual({ ok: true });
+  });
 });

@@ -186,3 +186,6 @@ tmp/
 *.tmp
 *.bak
 *.orig
+
+# ── Protocol generated bindings (ts-rs default output) — keep src/generated, ignore default bindings dir
+packages/protocol/bindings/
