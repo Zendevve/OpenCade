@@ -34,7 +34,9 @@ export function createEnvelope<T, Type extends string>(
   };
 }
 
-export function validateEnvelope<T>(envelope: Envelope<T>): { ok: true } | { ok: false; error: string } {
+export function validateEnvelope<T>(
+  envelope: Envelope<T>
+): { ok: true } | { ok: false; error: string } {
   if (!isSupportedVersion(envelope.version)) {
     return { ok: false, error: `unsupported version: ${envelope.version}` };
   }
@@ -52,7 +54,13 @@ export function validateEnvelope<T>(envelope: Envelope<T>): { ok: true } | { ok:
 
 export function parseEnvelope<T = unknown>(raw: string): Envelope<T> {
   const parsed = JSON.parse(raw) as Envelope<T>;
-  if (typeof parsed.type !== "string" || typeof parsed.version !== "string" || typeof parsed.request_id !== "string" || typeof parsed.timestamp !== "string" || parsed.payload === undefined) {
+  if (
+    typeof parsed.type !== "string" ||
+    typeof parsed.version !== "string" ||
+    typeof parsed.request_id !== "string" ||
+    typeof parsed.timestamp !== "string" ||
+    parsed.payload === undefined
+  ) {
     throw new Error("invalid envelope shape: missing required fields");
   }
   return parsed;

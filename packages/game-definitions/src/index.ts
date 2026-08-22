@@ -13,9 +13,12 @@ export function validateGameDefinition(def: GameDefinition): string | null {
   if (!/^[a-z0-9_-]{3,20}$/.test(def.id)) return `id '${def.id}' must match ^[a-z0-9_-]{3,20}$`;
   if (!def.name || def.name.trim().length === 0) return "name must not be empty";
   const allowed = ["fbneo", "flycast", "snes9x"] as const;
-  if (!(allowed as readonly string[]).includes(def.emulator)) return `emulator '${def.emulator}' must be one of ${allowed.join(", ")}`;
-  if (!def.launch || !Array.isArray(def.launch.args) || def.launch.args.length === 0) return "launch.args must not be empty";
-  if (!def.launch.args.some((a) => a.includes("{rom}"))) return "launch.args must contain {rom} placeholder";
+  if (!(allowed as readonly string[]).includes(def.emulator))
+    return `emulator '${def.emulator}' must be one of ${allowed.join(", ")}`;
+  if (!def.launch || !Array.isArray(def.launch.args) || def.launch.args.length === 0)
+    return "launch.args must not be empty";
+  if (!def.launch.args.some((a) => a.includes("{rom}")))
+    return "launch.args must contain {rom} placeholder";
   return null;
 }
 

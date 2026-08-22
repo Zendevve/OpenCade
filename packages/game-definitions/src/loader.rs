@@ -62,7 +62,10 @@ impl GameDefinition {
         if self.schema_version != 1 {
             return Err(GameDefError::Validation {
                 path: path.to_string(),
-                message: format!("unsupported schema_version {}, expected 1", self.schema_version),
+                message: format!(
+                    "unsupported schema_version {}, expected 1",
+                    self.schema_version
+                ),
             });
         }
         let id_re = Regex::new(r"^[a-z0-9_-]{3,20}$").expect("valid regex");
@@ -82,7 +85,10 @@ impl GameDefinition {
         if !allowed_emulators.contains(&self.emulator.as_str()) {
             return Err(GameDefError::Validation {
                 path: path.to_string(),
-                message: format!("emulator '{}' must be one of {:?}", self.emulator, allowed_emulators),
+                message: format!(
+                    "emulator '{}' must be one of {:?}",
+                    self.emulator, allowed_emulators
+                ),
             });
         }
         if self.launch.args.is_empty() {
@@ -103,7 +109,11 @@ impl GameDefinition {
 
     pub fn render_args(&self, rom_path: &Path) -> Vec<String> {
         let rom_str = rom_path.to_string_lossy().to_string();
-        self.launch.args.iter().map(|a| a.replace("{rom}", &rom_str)).collect()
+        self.launch
+            .args
+            .iter()
+            .map(|a| a.replace("{rom}", &rom_str))
+            .collect()
     }
 }
 
@@ -197,7 +207,10 @@ players = 2
         let def = load_from_str(&toml, "kof98.toml").unwrap();
         assert_eq!(def.id, "kof98");
         assert_eq!(def.emulator, "fbneo");
-        assert_eq!(def.validation.required_files, vec!["kof98.zip", "neogeo.zip"]);
+        assert_eq!(
+            def.validation.required_files,
+            vec!["kof98.zip", "neogeo.zip"]
+        );
         assert_eq!(def.launch.args, vec!["-rom", "{rom}", "-window"]);
     }
 

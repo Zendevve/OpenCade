@@ -1,6 +1,9 @@
 pub mod loader;
 
-pub use loader::{load_all_from_dir, load_from_path, load_from_str, GameDefError, GameDefinition, LaunchConfig, Metadata, ValidationConfig};
+pub use loader::{
+    load_all_from_dir, load_from_path, load_from_str, GameDefError, GameDefinition, LaunchConfig,
+    Metadata, ValidationConfig,
+};
 
 #[cfg(test)]
 mod tests {

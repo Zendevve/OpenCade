@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { createEnvelope, validateEnvelope, parseEnvelope, serializeEnvelope } from "./envelope.js";
 import { PROTOCOL_VERSION, isSupportedVersion } from "./version.js";
-import type { PresencePayload, ChatPayload, ChallengePayload, SessionPayload, RoomPayload } from "./messages.js";
+import type {
+  PresencePayload,
+  ChatPayload,
+  ChallengePayload,
+  SessionPayload,
+  RoomPayload,
+} from "./messages.js";
 
 describe("version", () => {
   it("canonical is 1.0 and compat 1 accepted", () => {
@@ -24,7 +30,13 @@ describe("envelope roundtrip", () => {
   });
 
   it("roundtrips presence", () => {
-    const payload: PresencePayload = { user_id: "user-1", rtt_ms: 42, loss: 0.02, jitter_ms: 5, relay_reachable: true };
+    const payload: PresencePayload = {
+      user_id: "user-1",
+      rtt_ms: 42,
+      loss: 0.02,
+      jitter_ms: 5,
+      relay_reachable: true,
+    };
     const env = createEnvelope("presence.update", payload);
     const raw = serializeEnvelope(env);
     const back = parseEnvelope<PresencePayload>(raw);
@@ -45,15 +57,29 @@ describe("envelope roundtrip", () => {
   });
 
   it("roundtrips challenge and session and room", () => {
-    const challenge: ChallengePayload = { game_id: "kof98", challenger_id: "user-1", challenged_id: "user-2" };
+    const challenge: ChallengePayload = {
+      game_id: "kof98",
+      challenger_id: "user-1",
+      challenged_id: "user-2",
+    };
     const cEnv = createEnvelope("challenge.create", challenge);
     expect(parseEnvelope<ChallengePayload>(serializeEnvelope(cEnv)).payload).toEqual(challenge);
 
-    const session: SessionPayload = { room_id: "room-1", sdp: "v=0\r\n...", candidate: "candidate:1" };
+    const session: SessionPayload = {
+      room_id: "room-1",
+      sdp: "v=0\r\n...",
+      candidate: "candidate:1",
+    };
     const sEnv = createEnvelope("signaling.offer", session);
     expect(parseEnvelope<SessionPayload>(serializeEnvelope(sEnv)).payload).toEqual(session);
 
-    const room: RoomPayload = { id: "room-1", game_id: "kof98", host_id: "user-1", guest_id: "user-2", state: "waiting" };
+    const room: RoomPayload = {
+      id: "room-1",
+      game_id: "kof98",
+      host_id: "user-1",
+      guest_id: "user-2",
+      state: "waiting",
+    };
     const rEnv = createEnvelope("room.state", room);
     expect(parseEnvelope<RoomPayload>(serializeEnvelope(rEnv)).payload).toEqual(room);
   });

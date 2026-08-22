@@ -35,7 +35,18 @@ export type SessionPayload = {
   sdp_mline_index?: number | null;
 };
 
-export type RoomState = "waiting" | "challenging" | "connecting" | "playing" | "finished" | "cancelled" | "WAITING" | "READY" | "PLAYING" | "FINISHED" | "CANCELLED";
+export type RoomState =
+  | "waiting"
+  | "challenging"
+  | "connecting"
+  | "playing"
+  | "finished"
+  | "cancelled"
+  | "WAITING"
+  | "READY"
+  | "PLAYING"
+  | "FINISHED"
+  | "CANCELLED";
 
 export type RoomPayload = {
   id: string;

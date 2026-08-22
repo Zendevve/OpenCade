@@ -40,11 +40,20 @@ describe("validateGameDefinition", () => {
 describe("renderArgs", () => {
   it("substitutes {rom} everywhere", () => {
     const def = makeDef({ launch: { args: ["-rom", "{rom}", "-bios", "{rom}.bios"] } });
-    expect(renderArgs(def, "/roms/kof98.zip")).toEqual(["-rom", "/roms/kof98.zip", "-bios", "/roms/kof98.zip.bios"]);
+    expect(renderArgs(def, "/roms/kof98.zip")).toEqual([
+      "-rom",
+      "/roms/kof98.zip",
+      "-bios",
+      "/roms/kof98.zip.bios",
+    ]);
   });
 
   it("produces full launch line for sfiii3", () => {
     const def = makeDef({ id: "sfiii3", launch: { args: ["-rom", "{rom}", "-window"] } });
-    expect(renderArgs(def, "C:/ROMS/sfiii3.zip")).toEqual(["-rom", "C:/ROMS/sfiii3.zip", "-window"]);
+    expect(renderArgs(def, "C:/ROMS/sfiii3.zip")).toEqual([
+      "-rom",
+      "C:/ROMS/sfiii3.zip",
+      "-window",
+    ]);
   });
 });
