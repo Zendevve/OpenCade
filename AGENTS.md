@@ -1,68 +1,87 @@
 # Repository Guidelines
 
 ## Project Overview
-Fightcade 2 (v2.1.45) — online matchmaking + GGPO rollback netplay for retro arcade/console games. This directory is the **installed binary distribution** (Windows), not a source monorepo. Frontend is an Electron/Nativefier wrapper around `https://web.fightcade.com`; matchmaking launches local emulator binaries with synchronized inputs. CHangelog spans client, FcadeFBNeo (0.2.97.44), Flycast Dojo (6.46), and frontend game definitions.
+OpenFight — open-source arcade netplay platform, clean-room alternative to proprietary Fightcade. Monorepo at `D:/OpenFight` (Apache-2.0) with Tauri + React + TypeScript client and Rust + Axum + PostgreSQL server. `D:/Fightcade` (v2.1.45) is **read-only reference** — never copied into this repo (see `docs/ARCHITECTURE.md §2` and `docs/reference-fightcade-install.md`). Goal: lobby → challenge → versioned signaling → P2P (or WS relay) → safe emulator launch.
 
 ## Architecture & Data Flow
-- **Electron shell (`fc2-electron/`)** → Nativefier 8.0.7 app: `resources/app/lib/main.js` (webpack bundle) + `preload.js` + `lib/static/login.{html,css,js}`. `main.js` loads `https://web.fightcade.com`; internal URL `https://replay.fightcade.com`. IPC `login-message` in `login.js` (`ipcRenderer.send('login-message', [username, password])`). Config in `resources/app/nativefier.json` (`singleInstance`, `disableDevTools: true`, `width/height 768`).
-- **Launcher bridge**: `Fightcade2.exe` / `Fightcade1.exe` / `fcade-upd.exe` orchestrate auth/lobby and spawn `emulator/fcade.exe` + `emulator/frm.exe` — both are **PyInstaller-frozen Python** (see `emulator/fcade-errors.log` traceback: `fightcade\launcher.py` → `fightcade\udp_client.py` → `timeout` in `start_flycast`/`init_udp`). That is where the real launcher/netcode logic lives; the `.exe` is opaque.
-- **Emulator cores** (`emulator/`): `fbneo/` (arcade + FBNeo romset 0.2.97.43/44), `flycast/` (Dreamcast/NAOMI/Sega C2), `snes9x/` (SNES), `ggpofba/` (legacy). Each has `ROMs/`, `config/`, `savestates/`, `recordings/`/`replays/`, `support/`. Flycast uses `emu.cfg`/`emu.default.cfg` + `flycast_roms.json`; FBNeo uses per-system JSON catalogs.
-- **ROM catalog**: `emulator/*.json` (`fbneo_roms.json` 727KB, `fbneo_*_roms.json` per system, `flycast_roms.json`, `snes9x_roms.json`, `fc1_roms.json`) enumerates supported IDs — source of truth for frontend game list and challenge sounds.
-- **ROM resolution**: User-facing `ROMs/` contains only shortcuts + `README.txt`; real paths are `emulator/<core>/ROMs/<system>/` (e.g., `emulator/fbneo/ROMs/`, `emulator/flycast/ROMs/`). Missing `neogeo.zip` BIOS or wrong romset is the common failure mode.
-- **Assets**: `assets/*.wav` challenge sounds (`kof98-challenge.wav` etc) + `fightcade.ico`/`icon-128.png`; shared across client notifications.
+- **System:** `apps/client` (Tauri) ↔ `apps/server` (Axum) over HTTPS/WS ` /ws` → P2P/relay between peers. Server never sees game inputs except when relaying as fallback.
+- **Client:** Tauri 1.x hosts React routes `Games | Lobbies | Friends | Servers | Settings`. Rust core owns `fs` (ROM scan under `emulator/<core>/ROMs/`), `process` (spawn via `tauri::api::process::Command` with arg escaping, no shell), `diag` (Network Test). State: TanStack Query + Zustand, WS client with typed `packages/protocol` discriminated unions and reconnect backoff.
+- **Server:** Single Axum monolith + `postgres:16-alpine` (no Redis in MVP). Routes `POST /api/v1/auth/*`, `GET /api/v1/games`, `GET /api/v1/lobbies/:game`, `POST /api/v1/rooms` + `.../:id/{accept,decline,cancel}`, WS `/ws` with versioned envelope `{type,version,request_id,timestamp,payload}` (`presence.update`, `chat.message`, `challenge.*`, `session.offer/answer/candidate`, `room.*`). In-memory presence Hub, Postgres for durable state.
+- **Networking:** Signaling relayed verbatim through server; client-driven UDP hole-punch → STUN hint (`GET /servers` returns `stun:host:port` when configured) → WS relay fallback (in-process `relay` module, future `services/relay` binary). Room states `WAITING → CHALLENGING → CONNECTING → PLAYING → FINISHED|CANCELLED`. Latency `rttMs/loss/jitter` via `presence.update`.
+- **Reference only:** `docs/reference-fightcade-install.md` describes the opaque PyInstaller launcher (`emulator/fcade.exe`/`frm.exe` → `fightcade/launcher.py`) and `fbneo-training-mode` Lua surface — not used at runtime.
 
 ## Key Directories
-- `fc2-electron/` — Electron wrapper distribution (SwiftShader, locales, `fc2-electron.exe` 91MB). Source inside `resources/app/` only.
-  - `fc2-electron/resources/app/lib/` — bundled `main.js`/`preload.js` (+ `.map`) — edit is re-bundle Nativefier, not patch in place.
-  - `fc2-electron/resources/app/lib/static/` — `login.html/js/css` — minimal IPC login form.
-  - `fc2-electron/resources/app/inject/` — `_placeholder` — Nativefier injection hook.
-- `emulator/` — native cores + configs. Do not move; `fcade.exe` expects relative `fbneo/`, `flycast/`, `snes9x/`, `ggpofba/` siblings.
-  - `emulator/fbneo/` — primary arcade core (`fightcade/`, `config/`, `savestates/`, `fbneo-training-mode/`). Core binary is `emulator/fbneo/fcadefbneo.exe` (plus `fbneo/fcv39.exe`).
-  - `emulator/fbneo/fbneo-training-mode/` — **only editable source surface** — vendored [peon2/fbneo-training-mode](https://github.com/peon2/fbneo-training-mode) Lua suite (~90 per-game modules). Entry `fbneo-training-mode.lua` (v0.22.10.28) + `guipages.lua`/`tableio.lua`; `games/<rom>/<rom>.lua` per game (e.g., `games/sfiii3/sfiii3.lua`, `games/kof98/kof98.lua`), `hitboxes/*.lua` profiles (`cps2-hitboxes.lua`, `garou-hitboxes.lua`), `inputs/input-display.lua`, `addon/addons.lua` registry (loads `missions.lua`). Module contract: memory addresses (`wb/ww/wdw/rb/rw/rdw`), `read/writePlayerOne*` helpers, per-frame `Run()` hook — patch here without touching the frozen launcher.
-  - `emulator/flycast/` — Dreamcast/NAOMI (`flycast.exe`, `mappings/`, `data/`, `replays/`).
-  - `emulator/snes9x/` — `fcadesnes9x.exe`, `fcadesnes9x.conf`, `ggponet.dll`.
-  - `emulator/ggpofba/` — legacy `ggpofba-ng.exe`.
-- `ROMs/` — shortcut folder only; per `ROMs/README.txt` place `.zip` in `emulator/<core>/ROMs/`.
-- `assets/` — branding + per-game `*-challenge.wav` audio.
+- `apps/client/` — Tauri app (replaces `fc2-electron`). `src/routes/{Games,Lobbies,Friends,Servers,Settings}.tsx`, `src/components/*`, `src/lib/{api,ws,store}.ts`, `src-tauri/src/{main.rs,commands/{fs,process,diag}.rs,adapters/fbneo.rs}`, `tauri.conf.json` (least-privilege `fs`/`process` allowlist).
+- `apps/server/` — Axum monolith (replaces `fightcade.com/replay`). `src/{main.rs,routes/*,ws.rs,state.rs,auth.rs,models/*}`, `migrations/001_users.sql`, `Dockerfile`.
+- `packages/protocol/` — shared wire types (`Envelope`, `RoomState`, `PresenceState`) — single source of truth, `serde` + `ts-rs` generation.
+- `packages/emulator-sdk/` — `pub trait EmulatorAdapter { detect/validate/get_version/launch/stop/configure }` + `LaunchCtx`, `ChildHandle`. No shell, path canonicalization + prefix check.
+- `packages/game-definitions/` — declarative `games/*.toml` (`schema_version=1`, `id`, `name`, `emulator="fbneo"`, `[launch] args=["{rom}"]`, `[validation] required_files=["neogeo.zip"]`) + `src/loader.rs` + legacy `emulator/*.json` → TOML importer (build-time only).
+- `adapters/fbneo/` — only required adapter in MVP (`fcadefbneo.exe` detection, `fcadefbneo.default.ini` version check, safe arg building). Future `flycast`/`snes9x` behind feature flags.
+- `services/relay/` — placeholder crate `openfight-relay` (future STUN/TURN); not required for MVP (in-process WS relay suffices).
+- `research/` — **not shipped** — `observations/`, `protocol/`, `binaries/` (gitignored), `network/`, `behavior/`, `notes/` + `GUARDRAILS.md`. Keep `research/binaries/.gitkeep`.
+- `docs/` — `ARCHITECTURE.md` (authoritative), `reference-fightcade-install.md` (read-only install notes).
+- `tests/`, `docker/`, `.github/workflows/` — integration tests, compose overlay, CI.
+- Reference (read-only, outside repo): `D:/Fightcade/emulator/fbneo/fbneo-training-mode/` — vendored Lua `games/<rom>/<rom>.lua` + `hitboxes/*.lua` + `Run()` hook; pattern only.
 
 ## Development Commands
-This checkout has **no build/test/lint pipeline** — it is a release artifact. For AI edits:
+```bash
+# prerequisites: Rust 1.78+, pnpm 9+, Docker, Postgres 16
+pnpm install                    # workspace install (apps/*, packages/*)
+pnpm -C apps/client tauri dev   # Vite + Tauri dev (Windows)
+pnpm -C apps/client build       # TS check + Vite build
+pnpm format && pnpm lint        # prettier + eslint
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo run -p openfight-server -- --migrate   # sqlx migrate run
+cargo run -p game-defs-import -- D:/Fightcade/emulator/fbneo_roms.json --out packages/game-definitions/games
 
-- **Run app**: `D:/Fightcade/Fightcade2.exe` (main), `D:/Fightcade/fc2-electron/fc2-electron.exe` (wrapper alone), `D:/Fightcade/emulator/fcade.exe` (core launcher). Logs: `emulator/fcade.log` / `fcade-errors.log`.
-- **Inspect Electron wrapper**: `cd fc2-electron/resources/app && npm install` (if hacking; `package.json` has no scripts, deps: `electron-context-menu@1.x`, `electron-dl@3.x`, `electron@8.x` pinned). Rebuild via Nativefier: `nativefier --targetUrl https://web.fightcade.com ...` — do not hand-edit `lib/main.js` (webpack output, 10k+ lines).
-- **Emulator configs**: edit `emulator/flycast/emu.cfg`, `emulator/snes9x/fcadesnes9x.conf`, `emulator/fbneo/config/` — copy `*.default.cfg` first.
-- **No npm/yarn/pnpm scripts at root**; no `tsconfig.json`, `vite.config`, or `Dockerfile` in this distribution. If adding tooling, introduce at repo root and document runtime.
-- **Update**: `fcade-upd.exe` + `ChangeLog.txt` / `VERSION.txt` (current `2.1.45`).
+# infra
+docker compose -f docker/docker-compose.yml up --build -d   # or docker-compose.yml at root
+curl http://localhost:8080/health && curl http://localhost:8080/ready
+psql $DATABASE_URL -f apps/server/migrations/001_users.sql
+
+# diagnostics
+pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/openfight.log
+```
 
 ## Code Conventions & Common Patterns
-- **Wrapper**: CommonJS, `require('electron')`, `ipcRenderer` / `ipcMain` message passing (`login-message`). Nativefier bundle is webpack 4 style (`__webpack_require__`), no ESM, no TypeScript in shipped artifact.
-- **Naming**: kebab for assets (`kof2002-challenge.wav`), snake-ish for emulator ROMs (`neogeo.zip`, `kof98.zip`), camelCase inside `main.js` bundle (generated).
-- **Error handling**: native cores log to `fcade-errors.log` (278B example); wrapper swallows devtools (`disableDevTools: true` in `nativefier.json`). For debugging, set `disableDevTools: false` and relaunch with `--inspect`.
-- **Async**: Electron IPC event-driven; emulator netcode is C++ GGPO via `ggponet.dll`/`kailleraclient.dll` — not JS async.
-- **Config over code**: behavior driven by JSON catalogs (`emulator/*.json`) and `nativefier.json`; prefer data edits over code patches.
-- **State**: no Redux/Zustand in shipped wrapper — server-authoritative lobby at `web.fightcade.com`; local state is filesystem (ROM presence, `savestates/`, `recordings/`).
+- **Formatting:** `cargo fmt` (rustfmt edition 2021, `max_width=100`) and `pnpm format` (Prettier) — CI blocks on `fmt --check`. `clippy -D warnings` required.
+- **Naming:** crates `openfight-*`, TS packages `@openfight/*`, adapters `fbneo` (kebab), TOML ids `sfiii3`, `kof98` (snake, lowercase). DB tables snake_case, API JSON camel? use `serde(rename_all="snake_case")`.
+- **Error handling:** `thiserror` + `anyhow` in Rust, never `unwrap()` in server paths; TS `Result<T,E>`-style returns from `src/lib/api.ts`. Structured `tracing` logs (JSON in prod, pretty in dev) — never log tokens, passwords, or ROM paths with PII.
+- **Async:** Tokio everywhere server-side; Tauri commands `async` with `#[tauri::command(async)]`; WS client uses `tokio-tungstenite` + backoff. No blocking in async context.
+- **Protocol:** every WS message `Envelope {type:"signaling.offer", version:1, request_id, timestamp, payload:{roomId,candidate}}`. Server validates `version` then `type`, returns `{code:"unknown_message"}` for unknown `type`; forward-compatible bump via `v:2` handler.
+- **Process launch:** `Command::new(exe).args(escaped_os_strings).current_dir(exe.parent()).spawn()` — canonicalize exe, verify under allowlist root, reject `..` traversal, no `cmd /C`, `extra_env` allowlisted only. `ChildHandle` tracks pid, streams stdout/stderr to `logs/emulator.log`.
+- **Adapter contract:** `detect()` checks `emulator/fbneo/fcadefbneo.exe` + `fcadefbneo.default.ini`; `validate()` checks `required_files` existence and warns on version mismatch vs `VERSION.txt 2.1.45`; `launch(ctx)` builds `LaunchCtx{exe, rom:PathBuf, args:Vec<OsString>}`; `stop(handle)` graceful `CTRL+C` → `kill` after timeout.
+- **Game defs:** `schema_version` mandatory (MVP `1`), loader rejects unknown `schema_version`, `id` must be `^[a-z0-9_]{3,20}$`, `launch.args` is `Vec<String>` with `{rom}` substitution via `OsString` positional replacement — no string concat.
+- **Clean-room:** `research/` is observation-only, never compiled. `cargo deny` + `license = "Apache-2.0"` allowlist; no GPL emulator cores linked. Citations for `fbneo-training-mode` inspiration in `NOTICE`.
 
 ## Important Files
-- Entry: `Fightcade2.exe`, `Fightcade1.exe` — top-level launchers.
-- Electron: `fc2-electron/resources/app/package.json`, `fc2-electron/resources/app/nativefier.json`, `fc2-electron/resources/app/lib/main.js`, `fc2-electron/resources/app/lib/preload.js`, `fc2-electron/resources/app/lib/static/login.js`
-- Emulators: `emulator/fcade.exe`, `emulator/frm.exe`, `emulator/fbneo/fcadefbneo.exe` (core; also `emulator/fbneo/fcv39.exe`), `emulator/flycast/flycast.exe`, `emulator/snes9x/fcadesnes9x.exe`
-- Catalogs: `emulator/fbneo_roms.json`, `emulator/fbneo_{sms,nes,md,cv,gg,msx,pce,sg1k,tg}_roms.json`, `emulator/flycast_roms.json`, `emulator/snes9x_roms.json`
-- Docs/state: `VERSION.txt`, `ChangeLog.txt` (1078 lines), `ROMs/README.txt`, `assets/fightcade.ico`
-- Logs/config: `emulator/fcade.log`, `emulator/fcade-errors.log`, `emulator/flycast/emu.cfg`, `emulator/snes9x/fcadesnes9x.conf`
+- `docs/ARCHITECTURE.md` — authoritative system boundaries, diagram, M0-M7 phases, guardrails (read before coding)
+- `docs/reference-fightcade-install.md` — read-only notes on `D:/Fightcade` (Electron wrapper, PyInstaller launcher, training-mode Lua, JSON catalogs)
+- `research/GUARDRAILS.md` — forbidden/allowed lists, Observation→Documentation→Design→Implementation process
+- `apps/client/src-tauri/tauri.conf.json` — Tauri permissions (`fs:allow-read-dir ROMs`, `process:allow-spawn` only known binaries, `store:allow`)
+- `apps/client/src/routes/Games.tsx` — game list (derived from `game-defs` + local scan) + challenge flow
+- `apps/server/src/main.rs` + `apps/server/src/ws.rs` — Axum router + WS versioned envelope relay
+- `apps/server/migrations/001_users.sql` — `users(id,username,password_hash)`, `sessions`, `games`, `rooms`, `matches`, `chat_messages`
+- `packages/protocol/src/lib.rs` — `Envelope`, `RoomState`, `PresenceState` (source of truth)
+- `packages/emulator-sdk/src/lib.rs` — `EmulatorAdapter` trait
+- `packages/game-definitions/games/sfiii3.toml` — example declarative game (template for new games)
+- `docker-compose.yml` + `apps/server/Dockerfile` + `.env.example` (`DATABASE_URL`, `SESSION_SECRET`)
+- `pnpm-workspace.yaml`, `rustfmt.toml`, `.clippy.toml`, `.github/workflows/ci.yml`
 
 ## Runtime/Tooling Preferences
-- **OS**: Windows 10 IoT Enterprise LTSC 2021 (win32 10.0.19044, x64, Intel R Core i3-8145U). Paths are `D:/Fightcade` — use Windows separators; forwarding slashes work in Node but not in `.lnk` shortcuts.
-- **Electron**: 8.x (bundled); Nativefier 8.0.7. If modifying wrapper, pin `electron@8.x` as in `resources/app/package.json`; newer Electron breaks native modules.
-- **Package manager**: none at root (distribution). Inside `fc2-electron/resources/app` use `npm` (no lockfile shipped). Prefer `npm ci` if you add one.
-- **No Bun/Node version enforced** — wrapper uses bundled Chromium/Node; emulators are native `.exe`/`.dll` (`d3dcompiler_47.dll`, `ffmpeg.dll`, `libEGL.dll`, etc. in `fc2-electron/`).
-- **Tooling constraint**: do not add TypeScript/bundler without a build step that re-emits `resources/app/lib/main.js` + source map; keep `disableContextMenu`/`disableDevTools` intentional for production.
+- **Runtime:** Rust 1.78+ (MSRV), Tauri 1.x (WebView2 on Windows), Node 20+ with **pnpm 9** (not npm/yarn), Postgres 16-alpine (sqlx compile-time checked). No Bun. No Electron.
+- **Package manager:** `pnpm` at root (`pnpm-workspace.yaml` covers `apps/*`, `packages/*`, `adapters/*`, `services/*`) — `pnpm install` only, commit `pnpm-lock.yaml`.
+- **Build:** `cargo build --workspace`, `pnpm -C apps/client build`, `tauri build` (MSI/NSIS on Windows). Docker multi-stage `rust:1.78 → debian:bookworm-slim`.
+- **Env:** `DATABASE_URL=postgres://openfight:openfight@db:5432/openfight`, `SESSION_SECRET` (32B CSPRNG), `RUST_LOG=info,openfight_server=debug`. Never commit `.env` (see `.env.example`).
+- **OS:** Windows 10/11 primary (Tauri), Linux/macOS viable via same stack — no `.lnk` shortcuts, use `tauri::path`.
+- **Tooling constraints:** keep `disableDevTools` off in dev, on in prod via Tauri `tauri.conf.json > build > devPath`. No `shell` permission in `tauri.conf.json`; use `process` allowlist.
 
 ## Testing & QA
-- **No automated test suite** in this distribution (`jest`/`vitest`/`playwright` configs absent; no `__tests__/`).
-- **Manual QA** (expected):
-  - Launch `Fightcade2.exe` → login via `login.html` form → lobby appears (server `web.fightcade.com`).
-  - ROM check: place `kof98.zip` + `neogeo.zip` in `emulator/fbneo/ROMs/`; launch from lobby — expect no `xxxx.zip was not found` / incompatibility error (requires romset 0.2.97.44; FC1 roms fail on FC2).
-  - Emulator smoke: `emulator/fbneo` vs `emulator/flycast` vs `emulator/snes9x` each launch, inputs respond, `fightcade/` replays/spectate work (see ChangeLog 2.1.45: session transmission fix).
-  - Challenging sound: trigger challenge → `assets/*-challenge.wav` plays.
-- **Logs for verification**: `emulator/fcade-errors.log`, `emulator/fcade.log`, Flycast `emu.cfg.bak` diff after config change.
-- **If adding tests** for wrapper changes: use `vitest` or `jest` + `electron-mock-ipc`; place in `tests/` or `__tests__/` at root, mock `ipcRenderer`, and add `npm test` script — keep emulator binaries out of CI (large, Windows-only).
+- **No ROMs/binaries in tests:** use fixtures under `tests/fixtures/` (tiny TOML, mock adapter). `research/binaries/` is gitignored.
+- **Unit:** `cargo test -p openfight-protocol -- envelope serde`, `-p emulator-sdk -- arg escaping`, `-p game-definitions -- loader/scan`, `pnpm test` for `packages/shared` (Vitest).
+- **Integration:** `cargo test --workspace -- --ignored` (spins `Axum` + `postgres` via `docker compose up -d db`, registers two users, WS presence → `challenge.send/accept` → `signaling.offer/answer/candidate` → `room PLAYING` → disconnect).
+- ** networking:** LAN, same NAT, different NAT, symmetric NAT (expect relay fallback), packet loss/latency injection via `tc`; `diagnostics:network_test` command asserts `nat:cone|symmetric`, `rttMs`, `relayReachable`.
+- **Manual QA loop (MVP):** `docker compose up -d` → `curl /health` → `pnpm tauri dev` → login → `Games` shows owned `sfiii3` (needs `sfiii3.zip` + `neogeo.zip` under `emulator/fbneo/ROMs/` scanned locally) → challenge peer in `Lobbies/:gameId` → accept → `CONNECTING` (P2P or relay) → emulator spawns `fcadefbneo.exe` with escaped `C:\path with spaces\sfiii3.zip` → play → `FINISHED` → export logs `Settings → Export Logs`.
+- **CI gate:** `.github/workflows/ci.yml` (`cargo fmt --check`, `clippy -D warnings`, `cargo test`, `pnpm format:check`, `pnpm build`, `docker compose config` lint). Workflow push requires `workflow` scope — see `docs/ARCHITECTURE.md §16`.
