@@ -15,6 +15,20 @@ jobs:
   rust:
     name: Rust (fmt / clippy / test)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: openfight
+          POSTGRES_PASSWORD: openfight
+          POSTGRES_DB: openfight_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openfight -d openfight_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +36,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.78"
           components: rustfmt, clippy
 
       - name: Cache cargo registry + target
@@ -35,11 +49,31 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: cargo test
-        run: cargo test --all --all-features --locked
+        run: cargo test --workspace --all-features --locked
         env:
-          # Use in-memory / test defaults where applicable; real DB not required for unit tests
           DATABASE_URL: postgres://openfight:openfight@localhost:5432/openfight_test
-          SESSION_SECRET: ci-test-secret
+          SESSION_SECRET: ci-test-secret-at-least-32-bytes-long
+
+      - name: Setup pnpm for protocol drift check
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js for protocol drift check
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install protocol formatter
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate TypeScript protocol bindings
+        run: cargo test -p openfight-protocol --lib export_bindings
+
+      - name: Normalize generated protocol bindings
+        run: pnpm exec prettier --ignore-path /dev/null --write packages/protocol/src/generated
+
+      - name: Protocol bindings are committed
+        run: git diff --exit-code -- packages/protocol/src/generated
 
   web:
     name: Web (format:check / build)
@@ -63,5 +97,55 @@ jobs:
       - name: pnpm format:check
         run: pnpm format:check
 
+      - name: pnpm typecheck
+        run: pnpm typecheck
+
+      - name: pnpm test
+        run: pnpm test
+
       - name: pnpm build
         run: pnpm build
+
+      - name: Upload client bundle for desktop checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: apps/client/dist
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Docker Compose configuration
+        run: docker compose config
+        env:
+          SESSION_SECRET: ci-compose-secret-at-least-32-bytes
+
+  desktop:
+    name: Desktop Rust (Windows / MSRV)
+    runs-on: windows-latest
+    needs: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download client bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: apps/client/dist
+
+      - name: Install Rust MSRV
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.78"
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/client/src-tauri
+
+      - name: Check desktop backend
+        run: cargo check --manifest-path apps/client/src-tauri/Cargo.toml --all-targets --locked
+
+      - name: Clippy desktop backend
+        run: cargo clippy --manifest-path apps/client/src-tauri/Cargo.toml --all-targets --locked -- -D warnings

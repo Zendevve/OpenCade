@@ -1,351 +1,352 @@
-use axum::{
-    extract::{Path, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, extract::State, http::StatusCode, Json};
 use openfight_protocol::{Envelope, RoomPayload, RoomState};
+use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::info;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::error::AppError;
-use crate::state::AppState;
+use crate::{
+    authn::AuthUser,
+    error::AppError,
+    room_state::{from_database, to_database, transition, RoomEvent},
+    state::AppState,
+};
 
-fn resolve_host_id(headers: &HeaderMap) -> String {
-    match headers
-        .get("x-user-id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-    {
-        Some(v) => v,
-        None => "test-user".to_string(),
-    }
+#[derive(Debug, Deserialize)]
+pub struct CreateRoomRequest {
+    game_id: String,
+    #[serde(default = "default_max_players")]
+    max_players: i32,
 }
 
-fn parse_room_state(s: &str) -> RoomState {
-    match s.to_ascii_lowercase().as_str() {
-        "waiting" => RoomState::Waiting,
-        "ready" => RoomState::Ready,
-        "challenging" => RoomState::Challenging,
-        "connecting" => RoomState::Connecting,
-        "playing" => RoomState::Playing,
-        "finished" => RoomState::Finished,
-        "cancelled" => RoomState::Cancelled,
-        _ => RoomState::Waiting,
-    }
+fn default_max_players() -> i32 {
+    2
 }
 
-fn room_state_to_str(state: &RoomState) -> &'static str {
-    match state {
-        RoomState::Waiting => "waiting",
-        RoomState::Ready => "ready",
-        RoomState::Challenging => "challenging",
-        RoomState::Connecting => "connecting",
-        RoomState::Playing => "playing",
-        RoomState::Finished => "finished",
-        RoomState::Cancelled => "cancelled",
-    }
+async fn room_payload(
+    state: &AppState,
+    room_id: Uuid,
+    requesting_user: Uuid,
+) -> Result<RoomPayload, AppError> {
+    let row = sqlx::query(
+        "SELECT rooms.game_id, rooms.host_user_id, rooms.state
+         FROM rooms
+         JOIN room_members ON room_members.room_id = rooms.id
+         WHERE rooms.id = $1 AND room_members.user_id = $2",
+    )
+    .bind(room_id)
+    .bind(requesting_user)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("room not found: {room_id}")))?;
+    let host_id: Uuid = row
+        .try_get("host_user_id")
+        .map_err(|_| AppError::Internal("invalid room record".into()))?;
+    let guest_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM room_members
+         WHERE room_id = $1 AND user_id <> $2
+         ORDER BY joined_at LIMIT 1",
+    )
+    .bind(room_id)
+    .bind(host_id)
+    .fetch_optional(&state.pool)
+    .await?;
+    let state_value: String = row
+        .try_get("state")
+        .map_err(|_| AppError::Internal("invalid room record".into()))?;
+    Ok(RoomPayload {
+        id: room_id.to_string(),
+        game_id: row
+            .try_get("game_id")
+            .map_err(|_| AppError::Internal("invalid room record".into()))?,
+        host_id: host_id.to_string(),
+        guest_id: guest_id.map(|id| id.to_string()),
+        state: from_database(&state_value).map_err(AppError::Internal)?,
+    })
 }
 
-async fn lookup_game_uuid(state: &AppState, game_id_str: &str) -> Option<Uuid> {
-    if let Ok(parsed) = Uuid::parse_str(game_id_str) {
-        return Some(parsed);
-    }
-    let row = sqlx::query("SELECT id FROM games WHERE slug = $1 LIMIT 1")
-        .bind(game_id_str)
-        .fetch_one(&state.pool)
-        .await
-        .ok()?;
-    use sqlx::Row;
-    row.try_get::<Uuid, _>("id").ok()
+async fn locked_room(
+    transaction: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+) -> Result<(Uuid, RoomState, i32), AppError> {
+    let row =
+        sqlx::query("SELECT host_user_id, state, max_players FROM rooms WHERE id = $1 FOR UPDATE")
+            .bind(room_id)
+            .fetch_optional(&mut **transaction)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("room not found: {room_id}")))?;
+    let state: String = row
+        .try_get("state")
+        .map_err(|_| AppError::Internal("invalid room record".into()))?;
+    Ok((
+        row.try_get("host_user_id")
+            .map_err(|_| AppError::Internal("invalid room record".into()))?,
+        from_database(&state).map_err(AppError::Internal)?,
+        row.try_get("max_players")
+            .map_err(|_| AppError::Internal("invalid room record".into()))?,
+    ))
 }
 
-async fn lookup_user_uuid(state: &AppState, host_id_str: &str) -> Option<Uuid> {
-    if let Ok(parsed) = Uuid::parse_str(host_id_str) {
-        return Some(parsed);
-    }
-    let row = sqlx::query("SELECT id FROM users WHERE username = $1 LIMIT 1")
-        .bind(host_id_str)
-        .fetch_one(&state.pool)
-        .await
-        .ok()?;
-    use sqlx::Row;
-    row.try_get::<Uuid, _>("id").ok()
-}
-
-/// POST /api/v1/rooms
-/// Body: { game_id }
 pub async fn create_room(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<Value>,
-) -> Result<impl IntoResponse, AppError> {
-    let game_id_str = body
-        .get("game_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing game_id".to_string()))?;
-
-    if game_id_str.trim().is_empty() {
+    user: AuthUser,
+    Json(request): Json<CreateRoomRequest>,
+) -> Result<(StatusCode, Json<Envelope<Value>>), AppError> {
+    if request.game_id.trim().is_empty() || !(2..=4).contains(&request.max_players) {
         return Err(AppError::BadRequest(
-            "game_id must not be empty".to_string(),
+            "game_id is required and max_players must be between 2 and 4".into(),
+        ));
+    }
+    let game_exists =
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM games WHERE id = $1)")
+            .bind(&request.game_id)
+            .fetch_one(&state.pool)
+            .await?;
+    if !game_exists {
+        return Err(AppError::NotFound(format!(
+            "game not found: {}",
+            request.game_id
+        )));
+    }
+
+    if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM rooms
+         WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(user.id)
+    .bind(&request.game_id)
+    .fetch_optional(&state.pool)
+    .await?
+    {
+        let payload = room_payload(&state, existing_id, user.id).await?;
+        return Ok((
+            StatusCode::OK,
+            Json(Envelope::new("rooms.existing", json!(payload))),
         ));
     }
 
-    let host_id_str = resolve_host_id(&headers);
     let room_id = Uuid::new_v4();
-    let game_uuid = lookup_game_uuid(&state, game_id_str).await;
-    let host_uuid = lookup_user_uuid(&state, &host_id_str).await;
-
-    let insert_result = sqlx::query(
-        "INSERT INTO rooms (id, game_id, host_id, state) VALUES ($1, $2, $3, 'waiting')",
+    let mut transaction = state.pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO rooms (id, game_id, host_user_id, state, max_players)
+         VALUES ($1, $2, $3, 'WAITING', $4)",
     )
     .bind(room_id)
-    .bind(game_uuid)
-    .bind(host_uuid)
-    .execute(&state.pool)
-    .await;
+    .bind(&request.game_id)
+    .bind(user.id)
+    .bind(request.max_players)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)")
+        .bind(room_id)
+        .bind(user.id)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
 
-    if let Err(e) = insert_result {
-        info!(error = %e, room_id = %room_id, "rooms: insert failed, returning stub payload");
-    } else {
-        info!(room_id = %room_id, game_id = %game_id_str, host_id = %host_id_str, "rooms: room created");
-    }
-
-    let payload_room = RoomPayload {
-        id: room_id.to_string(),
-        game_id: game_id_str.to_string(),
-        host_id: host_id_str.clone(),
-        guest_id: None,
-        state: RoomState::Waiting,
-    };
-
-    let envelope = Envelope::new("rooms.created", json!(payload_room));
-    Ok((StatusCode::CREATED, Json(envelope)))
+    let payload = room_payload(&state, room_id, user.id).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(Envelope::new("rooms.created", json!(payload))),
+    ))
 }
 
-/// Fallback wrapper for router without HeaderMap extractor — uses stub host.
-pub async fn create_room_without_headers(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<impl IntoResponse, AppError> {
-    create_room(State(state), HeaderMap::new(), Json(body)).await
-}
-
-/// GET /api/v1/rooms/:id
 pub async fn get_room(
     State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let room_uuid =
-        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
-
-    let row = sqlx::query("SELECT id, game_id, host_id, guest_id, state FROM rooms WHERE id = $1")
-        .bind(room_uuid)
-        .fetch_one(&state.pool)
-        .await;
-
-    match row {
-        Ok(r) => {
-            use sqlx::Row;
-            let db_id: Uuid = r
-                .try_get("id")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let game_id: Option<Uuid> = r.try_get("game_id").ok();
-            let host_id: Option<Uuid> = r.try_get("host_id").ok();
-            let guest_id: Option<Uuid> = r.try_get("guest_id").ok();
-            let state_str: String = r
-                .try_get("state")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-            let payload_room = RoomPayload {
-                id: db_id.to_string(),
-                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
-                host_id: match host_id.map(|h| h.to_string()) {
-                    Some(v) => v,
-                    None => "test-user".to_string(),
-                },
-                guest_id: guest_id.map(|g| g.to_string()),
-                state: parse_room_state(&state_str),
-            };
-
-            info!(room_id = %id, "rooms: get room");
-            let envelope = Envelope::new("rooms.get", json!(payload_room));
-            Ok((StatusCode::OK, Json(envelope)))
-        }
-        Err(sqlx::Error::RowNotFound) => Err(AppError::NotFound(format!("room not found: {}", id))),
-        Err(e) => Err(AppError::Internal(format!("database error: {}", e))),
-    }
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    let payload = room_payload(&state, id, user.id).await?;
+    Ok(Json(Envelope::new("rooms.get", json!(payload))))
 }
 
-/// POST /api/v1/rooms/:id/accept — transitions to challenging then connecting
 pub async fn accept_room(
     State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let room_uuid =
-        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
-
-    // First set to challenging, then connecting — do in one update to connecting for simplicity,
-    // but log both transitions.
-    let row = sqlx::query(
-        "UPDATE rooms SET state = 'connecting', updated_at = now() WHERE id = $1 AND state IN ('waiting','challenging') RETURNING id, game_id, host_id, guest_id, state",
-    )
-    .bind(room_uuid)
-    .fetch_one(&state.pool)
-    .await;
-
-    match row {
-        Ok(r) => {
-            use sqlx::Row;
-            let db_id: Uuid = r
-                .try_get("id")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let game_id: Option<Uuid> = r.try_get("game_id").ok();
-            let host_id: Option<Uuid> = r.try_get("host_id").ok();
-            let guest_id: Option<Uuid> = r.try_get("guest_id").ok();
-            let state_str: String = r
-                .try_get("state")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-            info!(room_id = %id, "rooms: room accepted -> connecting");
-
-            let payload_room = RoomPayload {
-                id: db_id.to_string(),
-                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
-                host_id: match host_id.map(|h| h.to_string()) {
-                    Some(v) => v,
-                    None => "test-user".to_string(),
-                },
-                guest_id: guest_id.map(|g| g.to_string()),
-                state: parse_room_state(&state_str),
-            };
-
-            let envelope = Envelope::new("rooms.accepted", json!(payload_room));
-            Ok((StatusCode::OK, Json(envelope)))
-        }
-        Err(sqlx::Error::RowNotFound) => {
-            // Check if room exists but wrong state
-            let exists = sqlx::query("SELECT id FROM rooms WHERE id = $1")
-                .bind(room_uuid)
-                .fetch_one(&state.pool)
-                .await;
-            if exists.is_ok() {
-                return Err(AppError::BadRequest(
-                    "room not in accept-able state".to_string(),
-                ));
-            }
-            Err(AppError::NotFound(format!("room not found: {}", id)))
-        }
-        Err(e) => Err(AppError::Internal(format!("database error: {}", e))),
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    let mut transaction = state.pool.begin().await?;
+    let (host_id, current, max_players) = locked_room(&mut transaction, id).await?;
+    if host_id == user.id {
+        return Err(AppError::Forbidden(
+            "room host cannot accept their own room".into(),
+        ));
     }
+    let members =
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM room_members WHERE room_id = $1")
+            .bind(id)
+            .fetch_one(&mut *transaction)
+            .await?;
+    if members >= i64::from(max_players) {
+        return Err(AppError::Conflict("room is full".into()));
+    }
+    let next = transition(current, RoomEvent::Accept)
+        .map_err(|error| AppError::Conflict(error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (room_id, user_id) DO NOTHING",
+    )
+    .bind(id)
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+        .bind(id)
+        .bind(to_database(&next))
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+
+    let payload = room_payload(&state, id, user.id).await?;
+    Ok(Json(Envelope::new("rooms.accepted", json!(payload))))
 }
 
-/// POST /api/v1/rooms/:id/decline — transitions to cancelled
 pub async fn decline_room(
     State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let room_uuid =
-        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
-
-    let row = sqlx::query(
-        "UPDATE rooms SET state = 'cancelled', updated_at = now() WHERE id = $1 RETURNING id, game_id, host_id, guest_id, state",
-    )
-    .bind(room_uuid)
-    .fetch_one(&state.pool)
-    .await;
-
-    match row {
-        Ok(r) => {
-            use sqlx::Row;
-            let db_id: Uuid = r
-                .try_get("id")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let game_id: Option<Uuid> = r.try_get("game_id").ok();
-            let host_id: Option<Uuid> = r.try_get("host_id").ok();
-            let guest_id: Option<Uuid> = r.try_get("guest_id").ok();
-            let state_str: String = r
-                .try_get("state")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-            info!(room_id = %id, "rooms: room declined -> cancelled");
-
-            let payload_room = RoomPayload {
-                id: db_id.to_string(),
-                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
-                host_id: match host_id.map(|h| h.to_string()) {
-                    Some(v) => v,
-                    None => "test-user".to_string(),
-                },
-                guest_id: guest_id.map(|g| g.to_string()),
-                state: parse_room_state(&state_str),
-            };
-
-            let envelope = Envelope::new("rooms.declined", json!(payload_room));
-            Ok((StatusCode::OK, Json(envelope)))
-        }
-        Err(sqlx::Error::RowNotFound) => Err(AppError::NotFound(format!("room not found: {}", id))),
-        Err(e) => Err(AppError::Internal(format!("database error: {}", e))),
-    }
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    change_room_state(&state, &user, id, RoomEvent::Decline, false).await?;
+    Ok(Json(Envelope::new(
+        "rooms.declined",
+        json!({ "room_id": id, "state": "cancelled" }),
+    )))
 }
 
-/// POST /api/v1/rooms/:id/cancel — host cancels, transitions to cancelled
 pub async fn cancel_room(
     State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
-    let room_uuid =
-        Uuid::parse_str(&id).map_err(|_| AppError::BadRequest("invalid room id".to_string()))?;
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    change_room_state(&state, &user, id, RoomEvent::Cancel, true).await?;
+    Ok(Json(Envelope::new(
+        "rooms.cancelled",
+        json!({ "room_id": id, "state": "cancelled" }),
+    )))
+}
 
-    let row = sqlx::query(
-        "UPDATE rooms SET state = 'cancelled', updated_at = now() WHERE id = $1 AND state IN ('waiting','challenging','connecting') RETURNING id, game_id, host_id, guest_id, state",
+pub async fn start_room(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    advance_match(&state, &user, id, RoomEvent::Start).await
+}
+
+pub async fn finish_room(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    advance_match(&state, &user, id, RoomEvent::Finish).await
+}
+
+async fn advance_match(
+    state: &AppState,
+    user: &AuthUser,
+    room_id: Uuid,
+    event: RoomEvent,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    let mut transaction = state.pool.begin().await?;
+    let (_, current, _) = locked_room(&mut transaction, room_id).await?;
+    let member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
     )
-    .bind(room_uuid)
-    .fetch_one(&state.pool)
-    .await;
-
-    match row {
-        Ok(r) => {
-            use sqlx::Row;
-            let db_id: Uuid = r
-                .try_get("id")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let game_id: Option<Uuid> = r.try_get("game_id").ok();
-            let host_id: Option<Uuid> = r.try_get("host_id").ok();
-            let guest_id: Option<Uuid> = r.try_get("guest_id").ok();
-            let state_str: String = r
-                .try_get("state")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-            info!(room_id = %id, "rooms: room cancelled");
-
-            let payload_room = RoomPayload {
-                id: db_id.to_string(),
-                game_id: game_id.map(|g| g.to_string()).unwrap_or_default(),
-                host_id: match host_id.map(|h| h.to_string()) {
-                    Some(v) => v,
-                    None => "test-user".to_string(),
-                },
-                guest_id: guest_id.map(|g| g.to_string()),
-                state: parse_room_state(&state_str),
-            };
-
-            let envelope = Envelope::new("rooms.cancelled", json!(payload_room));
-            Ok((StatusCode::OK, Json(envelope)))
+    .bind(room_id)
+    .bind(user.id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if !member {
+        return Err(AppError::Forbidden("not a room member".into()));
+    }
+    let next = transition(current, event).map_err(|error| AppError::Conflict(error.to_string()))?;
+    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+        .bind(room_id)
+        .bind(to_database(&next))
+        .execute(&mut *transaction)
+        .await?;
+    match event {
+        RoomEvent::Start => {
+            sqlx::query(
+                "INSERT INTO matches (room_id, game_id, started_at)
+                 SELECT id, game_id, now() FROM rooms WHERE id = $1",
+            )
+            .bind(room_id)
+            .execute(&mut *transaction)
+            .await?;
         }
-        Err(sqlx::Error::RowNotFound) => {
-            let exists = sqlx::query("SELECT id FROM rooms WHERE id = $1")
-                .bind(room_uuid)
-                .fetch_one(&state.pool)
-                .await;
-            if exists.is_ok() {
-                return Err(AppError::BadRequest(
-                    "room cannot be cancelled in current state".to_string(),
-                ));
-            }
-            Err(AppError::NotFound(format!("room not found: {}", id)))
+        RoomEvent::Finish => {
+            sqlx::query(
+                "UPDATE matches SET ended_at = now()
+                 WHERE room_id = $1 AND ended_at IS NULL",
+            )
+            .bind(room_id)
+            .execute(&mut *transaction)
+            .await?;
         }
-        Err(e) => Err(AppError::Internal(format!("database error: {}", e))),
+        _ => return Err(AppError::Internal("unsupported match event".into())),
+    }
+    transaction.commit().await?;
+
+    let payload = room_payload(state, room_id, user.id).await?;
+    let payload_value = serde_json::to_value(&payload)
+        .map_err(|_| AppError::Internal("failed to serialize room".into()))?;
+    let members =
+        sqlx::query_scalar::<_, Uuid>("SELECT user_id FROM room_members WHERE room_id = $1")
+            .bind(room_id)
+            .fetch_all(&state.pool)
+            .await?;
+    for member_id in members {
+        state.notify_user(member_id, "room.state", payload_value.clone());
+    }
+    Ok(Json(Envelope::new("room.state", payload_value)))
+}
+
+async fn change_room_state(
+    state: &AppState,
+    user: &AuthUser,
+    room_id: Uuid,
+    event: RoomEvent,
+    host_only: bool,
+) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    let (host_id, current, _) = locked_room(&mut transaction, room_id).await?;
+    if host_only && host_id != user.id {
+        return Err(AppError::Forbidden(
+            "only the room host can cancel this room".into(),
+        ));
+    }
+    if !host_only {
+        let member = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2
+             )",
+        )
+        .bind(room_id)
+        .bind(user.id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !member {
+            return Err(AppError::Forbidden("not a room member".into()));
+        }
+    }
+    let next = transition(current, event).map_err(|error| AppError::Conflict(error.to_string()))?;
+    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+        .bind(room_id)
+        .bind(to_database(&next))
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_rooms_to_two_players() {
+        assert_eq!(default_max_players(), 2);
     }
 }

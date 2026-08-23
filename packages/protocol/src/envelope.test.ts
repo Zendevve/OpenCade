@@ -5,7 +5,7 @@ import type {
   PresencePayload,
   ChatPayload,
   ChallengePayload,
-  SessionPayload,
+  SessionOfferPayload,
   RoomPayload,
 } from "./messages.js";
 
@@ -34,7 +34,7 @@ describe("envelope roundtrip", () => {
       user_id: "user-1",
       rtt_ms: 42,
       loss: 0.02,
-      jitter_ms: 5,
+      jitter: 5,
       relay_reachable: true,
     };
     const env = createEnvelope("presence.update", payload);
@@ -58,20 +58,22 @@ describe("envelope roundtrip", () => {
 
   it("roundtrips challenge and session and room", () => {
     const challenge: ChallengePayload = {
+      challenge_id: "challenge-1",
+      room_id: "room-1",
       game_id: "kof98",
       challenger_id: "user-1",
       challenged_id: "user-2",
+      state: "pending",
     };
-    const cEnv = createEnvelope("challenge.create", challenge);
+    const cEnv = createEnvelope("challenge.created", challenge);
     expect(parseEnvelope<ChallengePayload>(serializeEnvelope(cEnv)).payload).toEqual(challenge);
 
-    const session: SessionPayload = {
+    const session: SessionOfferPayload = {
       room_id: "room-1",
       sdp: "v=0\r\n...",
-      candidate: "candidate:1",
     };
     const sEnv = createEnvelope("signaling.offer", session);
-    expect(parseEnvelope<SessionPayload>(serializeEnvelope(sEnv)).payload).toEqual(session);
+    expect(parseEnvelope<SessionOfferPayload>(serializeEnvelope(sEnv)).payload).toEqual(session);
 
     const room: RoomPayload = {
       id: "room-1",
@@ -107,7 +109,7 @@ describe("envelope roundtrip", () => {
       version: "1.0",
       request_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       timestamp: new Date().toISOString(),
-      payload: { user_id: "user-1", rtt_ms: 42, loss: 0.5, jitter_ms: 7, relay_reachable: true },
+      payload: { user_id: "user-1", rtt_ms: 42, loss: 0.5, jitter: 7, relay_reachable: true },
     });
     const parsed = parseEnvelope<PresencePayload>(rustJson);
     expect(parsed.type).toBe("presence.update");
@@ -124,6 +126,7 @@ describe("envelope roundtrip", () => {
       id: "room-1",
       game_id: "kof98",
       host_id: "user-1",
+      guest_id: null,
       state: "ready",
     };
     const env = createEnvelope("room.state", room);

@@ -1,45 +1,61 @@
-import React from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { api, type Game } from "../lib/api";
+import { scanGame } from "../lib/native";
 
-type Game = {
-  id: string;
-  name: string;
-  emulator: string;
-};
+type Props = { token: string; onSelect: (gameId: string) => void };
 
-const PLACEHOLDER_GAMES: Game[] = [
-  { id: "sfiii3", name: "Street Fighter III: 3rd Strike", emulator: "fbneo" },
-  { id: "garou", name: "Garou: Mark of the Wolves", emulator: "fbneo" },
-  { id: "kof98", name: "The King of Fighters '98", emulator: "fbneo" },
-  { id: "mvc2", name: "Marvel vs. Capcom 2", emulator: "flycast" },
-];
+export default function Games({ token, onSelect }: Props) {
+  const games = useQuery({ queryKey: ["games"], queryFn: () => api.games(token) });
+  if (games.isPending) return <StatusCard title="Loading games" detail="Reading server catalog…" />;
+  if (games.isError) return <StatusCard title="Games unavailable" detail={games.error.message} />;
+  return <GameCatalog games={games.data.games} onSelect={onSelect} />;
+}
 
-export default function Games() {
-  const [filter, setFilter] = React.useState("");
-
-  const filtered = PLACEHOLDER_GAMES.filter(
-    (g) =>
-      g.name.toLowerCase().includes(filter.toLowerCase()) ||
-      g.id.toLowerCase().includes(filter.toLowerCase())
-  );
-
+function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (gameId: string) => void }) {
+  const availability = useQueries({
+    queries: games.map((game) => ({
+      queryKey: ["availability", game.id],
+      queryFn: () => scanGame(game.id),
+      staleTime: 30_000,
+    })),
+  });
   return (
-    <div style={{ padding: 16 }}>
-      <h1>Games</h1>
-      <p>Placeholder list — wired to game-definitions and emulator-sdk scan later.</p>
-      <input
-        placeholder="Filter games..."
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        style={{ marginBottom: 12, padding: 6, width: 280 }}
-      />
-      <ul>
-        {filtered.map((g) => (
-          <li key={g.id}>
-            <strong>{g.name}</strong> <code>{g.id}</code> — {g.emulator}
-          </li>
+    <section aria-labelledby="games-heading">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Game catalog</p>
+          <h2 id="games-heading">Choose your arena</h2>
+        </div>
+        <span className="count">{games.length} in catalog</span>
+      </div>
+      <div className="game-grid">
+        {games.map((game, index) => (
+          <button className="game-card" key={game.id} onClick={() => onSelect(game.id)}>
+            <span className="game-mark" aria-hidden="true">
+              {game.name.slice(0, 2).toUpperCase()}
+            </span>
+            <span className="game-copy">
+              <strong>{game.name}</strong>
+              <small>
+                {game.emulator} · {game.default_version ?? "version pending"} ·{" "}
+                {availability[index]?.data?.available ? "installed" : "ROM not detected"}
+              </small>
+            </span>
+            <span className="arrow" aria-hidden="true">
+              →
+            </span>
+          </button>
         ))}
-      </ul>
-      {filtered.length === 0 && <p>No games match &ldquo;{filter}&rdquo;.</p>}
+      </div>
+    </section>
+  );
+}
+
+function StatusCard({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="status-card" role="status">
+      <strong>{title}</strong>
+      <span>{detail}</span>
     </div>
   );
 }

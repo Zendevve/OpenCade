@@ -7,7 +7,9 @@
   "scripts": {
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "build": "echo \"root build: workspace members build via cargo and pnpm -r\" && pnpm -r --if-present build"
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm --filter @openfight/protocol build && pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
     "prettier": "^3.3.3"

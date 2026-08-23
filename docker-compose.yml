@@ -31,7 +31,8 @@ services:
     environment:
       DATABASE_URL: postgres://openfight:openfight@db:5432/openfight
       RUST_LOG: info
-      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
+      OPENFIGHT_ENV: production
       PORT: 8080
     ports:
       - "8080:8080"

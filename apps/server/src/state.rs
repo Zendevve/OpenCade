@@ -5,6 +5,11 @@
 //! so handlers can push messages without holding the socket directly.
 
 use sqlx::PgPool;
+use uuid::Uuid;
+
+use axum::extract::ws::Message;
+use openfight_protocol::Envelope;
+use serde_json::Value;
 
 use crate::config::Config;
 
@@ -21,11 +26,11 @@ pub struct AppState {
     ///
     /// Key: connection / user id (caller-defined, typically
     /// `request_id` or authenticated user id).
-    /// Value: unbounded sender for [`axum::extract::ws::Message`]s to that socket.
+    /// Value: bounded sender for [`axum::extract::ws::Message`]s to that socket.
     ///
     /// The map is wrapped in [`std::sync::Arc`] so `AppState::clone` is cheap.
     pub ws_hub: std::sync::Arc<
-        dashmap::DashMap<String, tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>>,
+        dashmap::DashMap<String, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
     >,
 }
 
@@ -38,6 +43,22 @@ impl AppState {
             pool,
             config,
             ws_hub: std::sync::Arc::new(dashmap::DashMap::new()),
+        }
+    }
+
+    /// Best-effort delivery to an authenticated user's bounded WebSocket queue.
+    /// Offline users observe the same durable state through REST after reconnecting.
+    pub fn notify_user(&self, user_id: Uuid, message_type: &str, payload: Value) {
+        let Some(target) = self.ws_hub.get(&user_id.to_string()) else {
+            return;
+        };
+        let envelope = Envelope::new(message_type, payload);
+        let Ok(text) = serde_json::to_string(&envelope) else {
+            tracing::error!(%user_id, %message_type, "failed to serialize websocket notification");
+            return;
+        };
+        if let Err(error) = target.try_send(Message::Text(text)) {
+            tracing::warn!(%error, %user_id, %message_type, "websocket notification queue unavailable");
         }
     }
 }
@@ -73,10 +94,7 @@ mod tests {
         // Verify that DashMap + Arc are the expected concrete types by
         // checking that the field can be constructed independently.
         let hub: std::sync::Arc<
-            dashmap::DashMap<
-                String,
-                tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>,
-            >,
+            dashmap::DashMap<String, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
         > = std::sync::Arc::new(dashmap::DashMap::new());
         assert_eq!(hub.len(), 0);
         // Suppress unused warning for PgPool import
