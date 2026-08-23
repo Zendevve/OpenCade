@@ -8,7 +8,7 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm --filter @openfight/protocol build && pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
