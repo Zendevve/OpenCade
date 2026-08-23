@@ -106,6 +106,14 @@ jobs:
       - name: pnpm build
         run: pnpm build
 
+      - name: Upload client bundle for desktop checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: apps/client/dist
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Docker Compose configuration
         run: docker compose config
         env:
@@ -114,9 +122,16 @@ jobs:
   desktop:
     name: Desktop Rust (Windows / MSRV)
     runs-on: windows-latest
+    needs: web
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download client bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: apps/client/dist
 
       - name: Install Rust MSRV
         uses: dtolnay/rust-toolchain@stable
