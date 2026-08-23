@@ -2,12 +2,12 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/Y4rDyTScPe)
-![Status](https://img.shields.io/badge/status-MVP%20spec-orange)
+![Status](https://img.shields.io/badge/status-proof--of--match-alpha-amber)
 ![Spec](https://img.shields.io/badge/spec-v0.1-lightgrey)
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
-OpenFight is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. This repository is currently at **MVP spec** stage — architecture, protocols, and interfaces are defined; implementation follows the phased roadmap below.
+OpenFight is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, and LAN UDP transport. FBNeo netplay, NAT traversal, and relay fallback remain explicitly unproven and are not advertised as implemented.
 
 ---
 
@@ -15,7 +15,7 @@ OpenFight is a monorepo for a modern arcade netplay platform: Rust server (Axum 
 
 ### Prerequisites
 
-- Docker + Docker Compose (server + Postgres + relay)
+- Docker + Docker Compose (server + Postgres)
 - Rust stable + `sqlx-cli` (server)
 - Node.js 20+ + pnpm 9+ (client)
 - Rust + Tauri prerequisites ([tauri.app/start/prerequisites](https://tauri.app/start/prerequisites))
@@ -24,6 +24,8 @@ OpenFight is a monorepo for a modern arcade netplay platform: Rust server (Axum 
 
 ```bash
 # from repo root
+cp .env.example .env
+# replace SESSION_SECRET in .env, then:
 docker compose up -d
 
 # verify
@@ -31,7 +33,7 @@ curl http://localhost:8080/health
 docker compose logs -f openfight-server
 ```
 
-This starts `openfight-server` + `postgres` + `openfight-relay` as defined in `docker-compose.yml`.
+This starts `openfight-server` and PostgreSQL. The server applies committed SQLx migrations before it begins serving. A relay service is intentionally deferred.
 
 ```bash
 # stop
@@ -48,16 +50,16 @@ docker compose down -v
 pnpm install
 
 # run desktop app in dev mode (Vite + Tauri)
-pnpm tauri dev
+pnpm -C apps/client tauri dev
 
 # or run web-only frontend
 pnpm --filter @openfight/client dev
 
 # production bundle
-pnpm tauri build
+pnpm -C apps/client tauri build
 ```
 
-> **Ports (default):** server `8080`, relay `4000/udp`, client dev `1420`, Vite HMR `1421`.
+> **Ports (default):** server `8080`, PostgreSQL `5432`, client dev `1420`.
 
 ---
 
@@ -67,7 +69,7 @@ pnpm tauri build
 OpenFight/
 ├── apps/
 │   ├── client/                 # Tauri + React + TypeScript desktop client
-│   │   ├── src/                # Routes: Games / Lobbies / Friends / Servers / Settings
+│   │   ├── src/                # Auth, games, lobby, challenge, and match views
 │   │   ├── src-tauri/          # Rust native layer (process / fs / logging / diagnostics)
 │   │   └── package.json
 │   └── server/                 # Rust + Axum + PostgreSQL API + WebSocket signaling
@@ -78,12 +80,11 @@ OpenFight/
 │   ├── protocol/               # Versioned signaling + REST contract (shared types)
 │   ├── emulator-sdk/           # Adapter trait: detect / validate / getVersion / launch / stop / configure
 │   ├── game-definitions/       # Declarative TOML (id, name, emulator, launch args, validation)
-│   ├── networking/             # NAT traversal, RTT/loss/jitter, room state machine
+│   ├── networking/             # Bounded input frames, deterministic in-memory + direct UDP transports
 │   └── shared/                 # Cross-cutting utils, logging, config
 ├── adapters/
 │   └── fbneo/                  # FBNeo reference adapter (first implementation)
-├── services/
-│   └── relay/                  # openfight-relay (TURN-like UDP relay fallback)
+├── services/                   # Reserved for a future relay service
 ├── research/                   # OBSERVATIONS ONLY — never shipped (see Clean-Room Notice)
 │   ├── observations/           # Dated, factual notes from black-box behavior
 │   ├── protocol/               # Captured message field notes (no replay)
@@ -93,8 +94,9 @@ OpenFight/
 │   └── notes/                  # Working scratch (not source of truth)
 ├── docs/
 │   ├── ARCHITECTURE.md         # System architecture & subsystem map
-│   ├── PROTOCOL.md             # Signaling & API specification
-│   └── CLEAN_ROOM.md           # Observation → Documentation → Design → Implementation
+│   ├── adr/                    # Architecture decision records
+│   ├── alpha/                  # LAN test and match-report procedures
+│   └── IMPLEMENTATION_STATUS.md # Verified scope and explicit non-claims
 ├── docker/
 │   └── compose.yml             # (or ./docker-compose.yml at root)
 ├── .github/
@@ -121,17 +123,20 @@ OpenFight is built under a strict clean-room process:
 
 **Allowed:** original source under Apache-2.0, documentation, licensed dependencies, public specifications.
 
-The `research/` directory is workspace-only and is **not shipped** in any release artifact or container image. CI enforces the guardrail (`research/` is excluded from builds and binary scans block proprietary artifacts). Details in `docs/CLEAN_ROOM.md`.
+The `research/` directory is workspace-only and is **not shipped** in release artifacts or the
+server container image. The process and prohibited material are documented in
+[`research/GUARDRAILS.md`](research/GUARDRAILS.md).
 
 ---
 
 ## Architecture
 
-High-level: `Client (Tauri)` ↔ `Server (Axum REST + WebSocket)` ↔ `Relay (UDP)` ↔ `Emulator (adapter-launched)`.
+High-level: `Client (Tauri)` ↔ `Server (Axum REST + authenticated WebSocket)` for the control plane; direct UDP or the deterministic in-memory transport carries OpenFight input frames; the adapter boundary owns safe local emulator execution.
 
-- **Server:** auth (Argon2id), sessions, games/versions, servers, rooms/matches, reports/bans, WebSocket signaling (`offer`/`answer`/`candidate`, `presence.update`, `chat.message`, `challenge.*`).
-- **Networking:** direct UDP → hole-punching (STUN) → relay (TURN) fallback; RTT/loss/jitter telemetry; Network Test diagnostics.
-- **Client:** routes `Games / Lobbies / Friends / Servers / Settings`; Rust core for process spawn, filesystem, and diagnostics; React frontend for UI.
+- **Server:** auth (Argon2id), hashed sessions, games, server hints, lobbies, durable challenges,
+  rooms/matches, and authenticated WebSocket signaling (`offer`/`answer`/`candidate`).
+- **Networking:** deterministic in-memory and connected UDP transports are implemented; hole punching, STUN, and relay fallback are deferred until two-machine LAN evidence exists.
+- **Client:** login/register, games, lobby challenges, match state, local availability scan, diagnostics, and redacted report export; Rust core owns process spawn, filesystem validation, and diagnostics.
 - **Emulator SDK:** trait-based adapters with safe process launch (no shell injection, argument escaping), ROM validation, and game-definition TOML.
 
 Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

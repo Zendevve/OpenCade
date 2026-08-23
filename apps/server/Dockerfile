@@ -5,26 +5,25 @@ FROM rust:1.78-bookworm AS builder
 WORKDIR /app
 
 # Copy workspace manifests first for layer caching.
-# Root Cargo.lock is optional — `cargo generate-lockfile` creates it; stub build
-# will generate it in-image if absent. Keep early COPY to Cargo.toml only so
-# builds don't break when root Cargo.lock hasn't been committed yet (full source
-# is copied later via COPY . .).
-COPY Cargo.toml ./
+# The lockfile is part of the MSRV and reproducibility contract.
+COPY Cargo.toml Cargo.lock ./
 COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY packages/protocol/Cargo.toml packages/protocol/Cargo.toml
 COPY packages/networking/Cargo.toml packages/networking/Cargo.toml
 COPY packages/emulator-sdk/Cargo.toml packages/emulator-sdk/Cargo.toml
 COPY packages/shared/Cargo.toml packages/shared/Cargo.toml
+COPY packages/game-definitions/Cargo.toml packages/game-definitions/Cargo.toml
 COPY adapters/fbneo/Cargo.toml adapters/fbneo/Cargo.toml
 
 # Create stub sources so `cargo build` can resolve the workspace graph.
 RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
-             packages/emulator-sdk/src packages/shared/src adapters/fbneo/src \
+             packages/emulator-sdk/src packages/shared/src packages/game-definitions/src adapters/fbneo/src \
     && echo "fn main() {}" > apps/server/src/main.rs \
     && echo "" > packages/protocol/src/lib.rs \
     && echo "" > packages/networking/src/lib.rs \
     && echo "" > packages/emulator-sdk/src/lib.rs \
     && echo "" > packages/shared/src/lib.rs \
+    && echo "" > packages/game-definitions/src/lib.rs \
     && echo "" > adapters/fbneo/src/lib.rs \
     && cargo build --release 2>/dev/null || true
 
@@ -32,7 +31,7 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
 COPY . .
 
 # Build the server binary.
-RUN cargo build --release -p openfight-server \
+RUN cargo build --release --locked -p openfight-server \
     && ls -lh target/release/openfight-server* 2>/dev/null || ls -lh target/release/
 
 # --- runtime ---------------------------------------------------------------
@@ -54,6 +53,7 @@ USER openfight
 EXPOSE 8080
 ENV RUST_LOG=info
 ENV DATABASE_URL=postgres://openfight:openfight@db:5432/openfight
+ENV OPENFIGHT_ENV=production
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
   CMD wget -qO- http://localhost:8080/health || exit 1

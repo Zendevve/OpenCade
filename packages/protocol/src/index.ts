@@ -5,12 +5,14 @@ export type {
   PresencePayload,
   ChatPayload,
   ChallengePayload,
-  SessionPayload,
+  ChallengeState,
+  SessionOfferPayload,
+  SessionAnswerPayload,
+  SessionCandidatePayload,
   RoomPayload,
   RoomState,
   HelloPayload,
   ErrorPayload,
   EnvelopeType,
-  PresenceStatus,
 } from "./messages.js";
 export { isKnownEnvelopeType } from "./messages.js";

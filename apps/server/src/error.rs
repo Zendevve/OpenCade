@@ -18,11 +18,17 @@ pub enum AppError {
     #[error("unauthorized: {0}")]
     Unauthorized(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("bad request: {0}")]
     BadRequest(String),
 
     #[error("not found: {0}")]
     NotFound(String),
+
+    #[error("conflict: {0}")]
+    Conflict(String),
 
     #[error("internal error: {0}")]
     Internal(String),
@@ -36,8 +42,10 @@ impl AppError {
     fn status_code(&self) -> StatusCode {
         match self {
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::VersionUnsupported(_) => StatusCode::BAD_REQUEST,
         }
@@ -47,8 +55,10 @@ impl AppError {
     fn code(&self) -> &'static str {
         match self {
             AppError::Unauthorized(_) => "unauthorized",
+            AppError::Forbidden(_) => "forbidden",
             AppError::BadRequest(_) => "bad_request",
             AppError::NotFound(_) => "not_found",
+            AppError::Conflict(_) => "conflict",
             AppError::Internal(_) => "internal",
             AppError::VersionUnsupported(_) => "version_unsupported",
         }
@@ -58,8 +68,10 @@ impl AppError {
     fn message(&self) -> String {
         match self {
             AppError::Unauthorized(m)
+            | AppError::Forbidden(m)
             | AppError::BadRequest(m)
             | AppError::NotFound(m)
+            | AppError::Conflict(m)
             | AppError::Internal(m)
             | AppError::VersionUnsupported(m) => m.clone(),
         }
@@ -93,8 +105,8 @@ impl IntoResponse for AppError {
 // Convenience conversions
 
 impl From<sqlx::Error> for AppError {
-    fn from(err: sqlx::Error) -> Self {
-        AppError::Internal(format!("database error: {}", err))
+    fn from(_err: sqlx::Error) -> Self {
+        AppError::Internal("database operation failed".to_string())
     }
 }
 
@@ -120,6 +132,10 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
+            AppError::Forbidden("x".into()).status_code(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
             AppError::NotFound("x".into()).status_code(),
             StatusCode::NOT_FOUND
         );
@@ -136,6 +152,7 @@ mod tests {
     #[test]
     fn code_mapping() {
         assert_eq!(AppError::Unauthorized("x".into()).code(), "unauthorized");
+        assert_eq!(AppError::Forbidden("x".into()).code(), "forbidden");
         assert_eq!(AppError::BadRequest("x".into()).code(), "bad_request");
         assert_eq!(AppError::NotFound("x".into()).code(), "not_found");
         assert_eq!(AppError::Internal("x".into()).code(), "internal");

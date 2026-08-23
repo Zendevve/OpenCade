@@ -14,7 +14,9 @@
       "all": false,
       "shell": {
         "all": false,
-        "open": true
+        "execute": false,
+        "open": false,
+        "sidecar": false
       }
     },
     "bundle": {
@@ -30,7 +32,7 @@
       ]
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 ws://localhost:8080; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     },
     "windows": [
       {

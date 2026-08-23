@@ -1,211 +1,242 @@
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::State, http::StatusCode, Json};
 use openfight_protocol::Envelope;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
-use tracing::info;
+use sqlx::Row;
 use uuid::Uuid;
 
-use sqlx::Row;
+use crate::{
+    authn::{generate_session_token, hash_token, AuthUser},
+    error::AppError,
+    state::AppState,
+};
 
-use crate::error::AppError;
-use crate::state::AppState;
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    username: String,
+    password: String,
+    email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    identifier: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicUser<'a> {
+    id: String,
+    username: &'a str,
+    email: Option<&'a str>,
+}
 
 fn validate_username(username: &str) -> Result<(), AppError> {
-    let re = Regex::new(r"^[a-zA-Z0-9_]{3,32}$")
-        .map_err(|e| AppError::Internal(format!("regex error: {}", e)))?;
-    if !re.is_match(username) {
-        return Err(AppError::BadRequest(
-            "username must be 3-32 chars, alphanumeric or underscore".to_string(),
-        ));
+    let expression = Regex::new(r"^[a-zA-Z0-9_]{3,32}$")
+        .map_err(|_| AppError::Internal("username validator unavailable".into()))?;
+    if expression.is_match(username) {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(
+            "username must be 3-32 characters using letters, numbers, or underscore".into(),
+        ))
     }
-    Ok(())
 }
 
 fn validate_email(email: &str) -> Result<(), AppError> {
-    if !email.contains('@') {
-        return Err(AppError::BadRequest("email must contain @".to_string()));
+    let (local, domain) = email
+        .split_once('@')
+        .ok_or_else(|| AppError::BadRequest("email must contain a valid domain".into()))?;
+    if !local.is_empty() && domain.contains('.') && email.len() <= 254 {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(
+            "email must contain a valid domain".into(),
+        ))
     }
-    if email.len() < 3 || email.len() > 254 {
-        return Err(AppError::BadRequest("email length invalid".to_string()));
-    }
-    Ok(())
 }
 
 fn validate_password(password: &str) -> Result<(), AppError> {
-    if password.len() < 8 {
-        return Err(AppError::BadRequest(
-            "password must be at least 8 characters".to_string(),
-        ));
+    if (8..=128).contains(&password.len()) {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(
+            "password must contain between 8 and 128 characters".into(),
+        ))
     }
-    Ok(())
 }
 
-fn hash_token_sha256(token: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(token.as_bytes());
-    format!("{:x}", hasher.finalize())
+fn database_error(error: sqlx::Error, operation: &'static str) -> AppError {
+    if error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .as_deref()
+        == Some("23505")
+    {
+        return AppError::Conflict("username or email already exists".into());
+    }
+    tracing::error!(%error, operation, "database operation failed");
+    AppError::Internal("database operation failed".into())
 }
 
-/// POST /api/v1/auth/register
-/// Body: { username, email, password }
 pub async fn register(
     State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<impl IntoResponse, AppError> {
-    let username = body
-        .get("username")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing username".to_string()))?;
-    let email = body
-        .get("email")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing email".to_string()))?;
-    let password = body
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing password".to_string()))?;
-
-    validate_username(username)?;
-    validate_email(email)?;
-    validate_password(password)?;
+    Json(request): Json<RegisterRequest>,
+) -> Result<(StatusCode, Json<Envelope<Value>>), AppError> {
+    validate_username(&request.username)?;
+    validate_password(&request.password)?;
+    if let Some(email) = request.email.as_deref() {
+        validate_email(email)?;
+    }
 
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| AppError::Internal(format!("hash error: {}", e)))?
+        .hash_password(request.password.as_bytes(), &salt)
+        .map_err(|_| AppError::Internal("password hashing failed".into()))?
         .to_string();
+    let token = generate_session_token();
+    let token_hash = hash_token(&token);
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
 
-    let row = sqlx::query(
-        "INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(username)
-    .bind(email)
-    .bind(&password_hash)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("duplicate") || msg.contains("unique") || msg.contains("already exists") {
-            AppError::BadRequest("username or email already exists".to_string())
-        } else {
-            AppError::Internal(format!("database error: {}", e))
-        }
-    })?;
-
-    let user_id: Uuid = row
-        .try_get("id")
-        .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-    info!(username = %username, user_id = %user_id, "auth: user registered");
-
-    let payload = json!({
-        "user_id": user_id.to_string(),
-        "username": username,
-        "email": email,
-    });
-    let envelope = Envelope::new("auth.registered", payload);
-    Ok((StatusCode::CREATED, Json(envelope)))
-}
-
-/// POST /api/v1/auth/login
-/// Body: { email, password }  (username may be used as fallback for email field)
-pub async fn login(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<impl IntoResponse, AppError> {
-    let email = body
-        .get("email")
-        .and_then(|v| v.as_str())
-        .or_else(|| body.get("username").and_then(|v| v.as_str()))
-        .ok_or_else(|| AppError::BadRequest("missing email".to_string()))?;
-    let password = body
-        .get("password")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing password".to_string()))?;
-
-    validate_email(email)?;
-    validate_password(password)?;
-
-    let row = sqlx::query("SELECT id, username, email, password_hash FROM users WHERE email = $1")
-        .bind(email)
-        .fetch_one(&state.pool)
+    let mut transaction = state
+        .pool
+        .begin()
         .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::Unauthorized("invalid credentials".to_string()),
-            other => AppError::Internal(format!("database error: {}", other)),
-        })?;
-
-    let user_id: Uuid = row
-        .try_get("id")
-        .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-    let stored_hash: String = row
-        .try_get("password_hash")
-        .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-    let parsed_hash = PasswordHash::new(&stored_hash)
-        .map_err(|e| AppError::Internal(format!("hash parse error: {}", e)))?;
-
-    Argon2::default()
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .map_err(|_| AppError::Unauthorized("invalid credentials".to_string()))?;
-
-    let token = Uuid::new_v4().to_string();
-    let token_hash = hash_token_sha256(&token);
-    let expires_at = chrono::Utc::now() + chrono::Duration::days(7);
-
+        .map_err(|error| database_error(error, "begin registration transaction"))?;
+    let user_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO users (username, email, password_hash)
+         VALUES ($1, $2, $3)
+         RETURNING id",
+    )
+    .bind(&request.username)
+    .bind(&request.email)
+    .bind(password_hash)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|error| database_error(error, "insert user"))?;
     sqlx::query("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
         .bind(user_id)
-        .bind(&token_hash)
+        .bind(token_hash)
+        .bind(expires_at)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| database_error(error, "insert session"))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| database_error(error, "commit registration"))?;
+
+    let user = PublicUser {
+        id: user_id.to_string(),
+        username: &request.username,
+        email: request.email.as_deref(),
+    };
+    Ok((
+        StatusCode::CREATED,
+        Json(Envelope::new(
+            "auth.registered",
+            json!({ "user": user, "token": token, "expires_at": expires_at }),
+        )),
+    ))
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(request): Json<LoginRequest>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    validate_password(&request.password)?;
+    if request.identifier.trim().is_empty() {
+        return Err(AppError::BadRequest("identifier must not be empty".into()));
+    }
+
+    let row = sqlx::query(
+        "SELECT id, username, email, password_hash
+         FROM users
+         WHERE lower(username) = lower($1) OR lower(email) = lower($1)
+         LIMIT 1",
+    )
+    .bind(request.identifier.trim())
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|error| database_error(error, "find login user"))?
+    .ok_or_else(|| AppError::Unauthorized("invalid credentials".into()))?;
+
+    let user_id: Uuid = row
+        .try_get("id")
+        .map_err(|_| AppError::Internal("invalid user record".into()))?;
+    let username: String = row
+        .try_get("username")
+        .map_err(|_| AppError::Internal("invalid user record".into()))?;
+    let email: Option<String> = row
+        .try_get("email")
+        .map_err(|_| AppError::Internal("invalid user record".into()))?;
+    let stored_hash: String = row
+        .try_get("password_hash")
+        .map_err(|_| AppError::Internal("invalid user record".into()))?;
+    let parsed_hash = PasswordHash::new(&stored_hash)
+        .map_err(|_| AppError::Internal("invalid password record".into()))?;
+    Argon2::default()
+        .verify_password(request.password.as_bytes(), &parsed_hash)
+        .map_err(|_| AppError::Unauthorized("invalid credentials".into()))?;
+
+    let token = generate_session_token();
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+    sqlx::query("INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(hash_token(&token))
         .bind(expires_at)
         .execute(&state.pool)
         .await
-        .map_err(|e| AppError::Internal(format!("database error: {}", e)))?;
+        .map_err(|error| database_error(error, "insert login session"))?;
 
-    info!(user_id = %user_id, "auth: user logged in");
-
-    let payload = json!({
-        "user_id": user_id.to_string(),
-        "token": token,
-    });
-    let envelope = Envelope::new("auth.logged_in", payload);
-    Ok((StatusCode::OK, Json(envelope)))
+    let user = PublicUser {
+        id: user_id.to_string(),
+        username: &username,
+        email: email.as_deref(),
+    };
+    Ok(Json(Envelope::new(
+        "auth.logged_in",
+        json!({ "user": user, "token": token, "expires_at": expires_at }),
+    )))
 }
 
-/// POST /api/v1/auth/logout
-/// Body: { token }  — revokes session by token_hash
 pub async fn logout(
     State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<impl IntoResponse, AppError> {
-    let token = body
-        .get("token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("missing token".to_string()))?;
+    user: AuthUser,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    sqlx::query("UPDATE sessions SET revoked_at = now() WHERE token_hash = $1")
+        .bind(user.token_hash)
+        .execute(&state.pool)
+        .await
+        .map_err(|error| database_error(error, "revoke session"))?;
+    Ok(Json(Envelope::new(
+        "auth.logged_out",
+        json!({ "message": "session revoked" }),
+    )))
+}
 
-    if token.len() < 8 {
-        return Err(AppError::BadRequest("invalid token".to_string()));
+pub async fn me(user: AuthUser) -> Json<Envelope<Value>> {
+    Json(Envelope::new(
+        "auth.me",
+        json!({ "user": { "id": user.id, "username": user.username } }),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_user_facing_boundaries() {
+        assert!(validate_username("player_one").is_ok());
+        assert!(validate_username("x").is_err());
+        assert!(validate_email("player@example.com").is_ok());
+        assert!(validate_email("player@example").is_err());
+        assert!(validate_password("eight888").is_ok());
+        assert!(validate_password("short").is_err());
+        assert!(validate_password(&"x".repeat(129)).is_err());
     }
-
-    let token_hash = hash_token_sha256(token);
-
-    let result = sqlx::query(
-        "UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL",
-    )
-    .bind(&token_hash)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("database error: {}", e)))?;
-
-    if result.rows_affected() == 0 {
-        info!(token_hash = %token_hash, "auth: logout token not found or already revoked");
-    } else {
-        info!(token_hash = %token_hash, "auth: session revoked");
-    }
-
-    let payload = json!({ "message": "logout successful" });
-    let envelope = Envelope::new("auth.logged_out", payload);
-    Ok((StatusCode::OK, Json(envelope)))
 }

@@ -1,153 +1,75 @@
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, extract::State, Json};
 use openfight_protocol::Envelope;
 use serde_json::{json, Value};
-use tracing::info;
+use sqlx::Row;
 
-use crate::error::AppError;
-use crate::state::AppState;
+use crate::{authn::AuthUser, error::AppError, state::AppState};
 
-fn seeded_games() -> Vec<Value> {
-    vec![json!({
-        "id": "sfiii3",
-        "slug": "sfiii3",
-        "name": "Street Fighter III: 3rd Strike",
-        "emulator": "fbneo"
-    })]
+pub async fn list_games(
+    State(state): State<AppState>,
+    _user: AuthUser,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    let rows = sqlx::query(
+        "SELECT games.id, games.name, games.emulator,
+                game_versions.version AS default_version
+         FROM games
+         LEFT JOIN game_versions
+           ON game_versions.game_id = games.id AND game_versions.is_default
+         ORDER BY games.name
+         LIMIT 500",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let games = rows
+        .into_iter()
+        .map(|row| -> Result<Value, AppError> {
+            Ok(json!({
+                "id": required_string(&row, "id")?,
+                "name": required_string(&row, "name")?,
+                "emulator": required_string(&row, "emulator")?,
+                "default_version": row.try_get::<Option<String>, _>("default_version")
+                    .map_err(|_| AppError::Internal("invalid game record".into()))?,
+            }))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(Envelope::new("games.list", json!({ "games": games }))))
 }
 
-/// GET /api/v1/games
-pub async fn list_games(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
-    let rows_result = sqlx::query("SELECT id, slug, name, emulator FROM games ORDER BY name ASC")
-        .fetch_all(&state.pool)
-        .await;
-
-    let games: Vec<Value> = match rows_result {
-        Ok(rows) => {
-            if rows.is_empty() {
-                info!("games: table empty, returning seeded game");
-                seeded_games()
-            } else {
-                let mut out = Vec::with_capacity(rows.len());
-                for row in rows {
-                    let id: uuid::Uuid = match row.try_get("id") {
-                        Ok(v) => v,
-                        Err(_) => uuid::Uuid::new_v4(),
-                    };
-                    let slug: String = match row.try_get("slug") {
-                        Ok(v) => v,
-                        Err(_) => id.to_string(),
-                    };
-                    let name: String = match row.try_get("name") {
-                        Ok(v) => v,
-                        Err(_) => "unknown".to_string(),
-                    };
-                    let emulator: String = match row.try_get("emulator") {
-                        Ok(v) => v,
-                        Err(_) => "fbneo".to_string(),
-                    };
-                    out.push(json!({
-                        "id": id.to_string(),
-                        "slug": slug,
-                        "name": name,
-                        "emulator": emulator
-                    }));
-                }
-                out
-            }
-        }
-        Err(e) => {
-            info!(error = %e, "games: query failed, returning seeded games fallback");
-            seeded_games()
-        }
-    };
-
-    let payload = json!({ "games": games });
-    let envelope = Envelope::new("games.list", payload);
-    Ok((StatusCode::OK, Json(envelope)))
-}
-
-/// GET /api/v1/games/:id
 pub async fn get_game(
     State(state): State<AppState>,
+    _user: AuthUser,
     Path(id): Path<String>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<Json<Envelope<Value>>, AppError> {
     if id.trim().is_empty() {
-        return Err(AppError::BadRequest("missing game id".to_string()));
+        return Err(AppError::BadRequest("game id must not be empty".into()));
     }
-
-    let row_result = sqlx::query(
-        "SELECT id, slug, name, emulator FROM games WHERE slug = $1 OR id::text = $1 LIMIT 1",
+    let row = sqlx::query(
+        "SELECT games.id, games.name, games.emulator,
+                game_versions.version AS default_version
+         FROM games
+         LEFT JOIN game_versions
+           ON game_versions.game_id = games.id AND game_versions.is_default
+         WHERE games.id = $1",
     )
     .bind(&id)
-    .fetch_one(&state.pool)
-    .await;
-
-    match row_result {
-        Ok(row) => {
-            let db_id: uuid::Uuid = row
-                .try_get("id")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let slug: String = row
-                .try_get("slug")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let name: String = row
-                .try_get("name")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-            let emulator: String = row
-                .try_get("emulator")
-                .map_err(|e| AppError::Internal(format!("row decode error: {}", e)))?;
-
-            info!(game_id = %id, "games: found game");
-
-            let payload = json!({
-                "game": {
-                    "id": db_id.to_string(),
-                    "slug": slug,
-                    "name": name,
-                    "emulator": emulator
-                }
-            });
-            let envelope = Envelope::new("games.get", payload);
-            Ok((StatusCode::OK, Json(envelope)))
-        }
-        Err(sqlx::Error::RowNotFound) => {
-            if id == "sfiii3" {
-                let payload = json!({
-                    "game": {
-                        "id": "sfiii3",
-                        "slug": "sfiii3",
-                        "name": "Street Fighter III: 3rd Strike",
-                        "emulator": "fbneo"
-                    }
-                });
-                let envelope = Envelope::new("games.get", payload);
-                return Ok((StatusCode::OK, Json(envelope)));
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("game not found: {id}")))?;
+    Ok(Json(Envelope::new(
+        "games.get",
+        json!({
+            "game": {
+                "id": required_string(&row, "id")?,
+                "name": required_string(&row, "name")?,
+                "emulator": required_string(&row, "emulator")?,
+                "default_version": row.try_get::<Option<String>, _>("default_version")
+                    .map_err(|_| AppError::Internal("invalid game record".into()))?,
             }
-            Err(AppError::NotFound(format!("game not found: {}", id)))
-        }
-        Err(e) => {
-            info!(error = %e, game_id = %id, "games: query error, trying seeded fallback");
-            if id == "sfiii3" {
-                let payload = json!({
-                    "game": {
-                        "id": "sfiii3",
-                        "slug": "sfiii3",
-                        "name": "Street Fighter III: 3rd Strike",
-                        "emulator": "fbneo"
-                    }
-                });
-                let envelope = Envelope::new("games.get", payload);
-                return Ok((StatusCode::OK, Json(envelope)));
-            }
-            Err(AppError::Internal(format!("database error: {}", e)))
-        }
-    }
+        }),
+    )))
 }
 
-// bring Row trait into scope for try_get
-use sqlx::Row;
+fn required_string(row: &sqlx::postgres::PgRow, field: &str) -> Result<String, AppError> {
+    row.try_get(field)
+        .map_err(|_| AppError::Internal("invalid game record".into()))
+}
