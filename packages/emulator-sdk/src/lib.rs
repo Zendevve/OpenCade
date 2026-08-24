@@ -318,10 +318,18 @@ mod tests {
 
     #[test]
     fn safe_launch_preserves_paths_with_spaces_and_rejects_escape() {
+        let raw_thread = std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace("::", "_")
+            .replace(
+                |c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-',
+                "_",
+            );
         let fixture = std::env::temp_dir().join(format!(
-            "opencade sdk fixture {} {}",
+            "opencade-sdk-fixture-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            raw_thread
         ));
         let emulator_root = fixture.join("emulator root");
         let rom_root = fixture.join("ROMs");
