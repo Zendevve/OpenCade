@@ -8,7 +8,9 @@ repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [dependencies]
+chrono = "0.4"
 opencade-emulator-sdk = { path = "../emulator-sdk" }
+opencade-protocol = { path = "../protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"

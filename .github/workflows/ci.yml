@@ -142,7 +142,23 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/client/src-tauri
+          workspaces: |
+            .
+            apps/client/src-tauri
+
+      - name: Build Windows LAN alpha tools
+        run: cargo build -p opencade-networking --bins --release --locked
+
+      - name: Upload Windows LAN alpha tools
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencade-lan-tools-windows
+          path: |
+            target/release/opencade-match-probe.exe
+            target/release/opencade-match-verify.exe
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Check desktop backend
         run: cargo check --manifest-path apps/client/src-tauri/Cargo.toml --all-targets --locked

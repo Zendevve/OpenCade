@@ -15,6 +15,9 @@ use uuid::Uuid;
 /// Canonical protocol version. All messages SHOULD use this value.
 pub const PROTOCOL_VERSION: &str = "1.0";
 
+/// Canonical schema version for redacted LAN alpha evidence reports.
+pub const MATCH_REPORT_SCHEMA_VERSION: u8 = 1;
+
 /// Returns `true` if the supplied version string is supported.
 ///
 /// Accepts both canonical `"1.0"` and compat `"1"`.
@@ -176,6 +179,63 @@ pub struct MatchProbeCompletedPayload {
     pub room_id: String,
     pub frames_received: u32,
     pub transcript_checksum: String,
+}
+
+/// Peer role retained in a redacted alpha report. User identifiers are deliberately omitted.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportRole.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum MatchReportRole {
+    Host,
+    Guest,
+}
+
+/// Transport values accepted by the v1 alpha evidence contract.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportTransport.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum MatchReportTransport {
+    DirectUdp,
+}
+
+/// Privacy-minimized room correlation included in an alpha report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportRoom.ts")]
+pub struct MatchReportRoom {
+    pub id: String,
+    pub game_id: String,
+    pub state: RoomState,
+}
+
+/// Deterministic transport evidence from one side of an alpha match.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportProbe.ts")]
+pub struct MatchReportProbe {
+    pub role: MatchReportRole,
+    pub transport: MatchReportTransport,
+    pub frames_sent: u32,
+    pub frames_received: u32,
+    pub transcript_checksum: String,
+    pub elapsed_ms: u32,
+}
+
+/// Non-sensitive producer metadata used to diagnose platform-specific alpha failures.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportClient.ts")]
+pub struct MatchReportClient {
+    pub platform: String,
+    pub user_agent: String,
+}
+
+/// Canonical, redacted evidence emitted by both the desktop and standalone LAN probe.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReport.ts")]
+pub struct MatchReport {
+    pub schema_version: u8,
+    pub exported_at: DateTime<Utc>,
+    pub room: MatchReportRoom,
+    pub probe: MatchReportProbe,
+    pub client: MatchReportClient,
 }
 /// Room lifecycle states. Serialized as `snake_case` strings.
 /// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);

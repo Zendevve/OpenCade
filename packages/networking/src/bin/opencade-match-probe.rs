@@ -1,5 +1,10 @@
+use chrono::Utc;
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 use opencade_networking::{run_match_probe, MatchProbeConfig, UdpPeer};
+use opencade_protocol::{
+    MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole, MatchReportRoom,
+    MatchReportTransport, RoomState, MATCH_REPORT_SCHEMA_VERSION,
+};
 use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -80,6 +85,8 @@ fn usage() -> &'static str {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = Arguments::parse()
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let room_id = arguments.room_id.clone();
+    let game_id = arguments.game_id.clone();
     let descriptor = MatchDescriptor {
         room_id: arguments.room_id,
         game_id: arguments.game_id,
@@ -98,7 +105,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         arguments.timeout,
     )?;
     let peer = UdpPeer::bind(arguments.local, arguments.peer).await?;
-    let report = run_match_probe(&peer, &config).await?;
+    let probe = run_match_probe(&peer, &config).await?;
+    let report = MatchReport {
+        schema_version: MATCH_REPORT_SCHEMA_VERSION,
+        exported_at: Utc::now(),
+        room: MatchReportRoom {
+            id: room_id,
+            game_id,
+            state: RoomState::Finished,
+        },
+        probe: MatchReportProbe {
+            role: match probe.role {
+                PeerRole::Host => MatchReportRole::Host,
+                PeerRole::Guest => MatchReportRole::Guest,
+            },
+            transport: MatchReportTransport::DirectUdp,
+            frames_sent: u32::try_from(probe.frames_sent).unwrap_or(u32::MAX),
+            frames_received: u32::try_from(probe.frames_received).unwrap_or(u32::MAX),
+            transcript_checksum: probe.transcript_checksum,
+            elapsed_ms: u32::try_from(probe.elapsed_ms).unwrap_or(u32::MAX),
+        },
+        client: MatchReportClient {
+            platform: std::env::consts::OS.into(),
+            user_agent: format!("opencade-match-probe/{}", env!("CARGO_PKG_VERSION")),
+        },
+    };
     println!("{}", serde_json::to_string(&report)?);
     Ok(())
 }

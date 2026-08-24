@@ -24,9 +24,15 @@ direct UDP frame transport; it does not claim FBNeo netplay support.
    transcript checksum. The host then transitions the room to `playing` and `finished`.
 6. If either side reports a firewall or timeout error, allow the advertised UDP port through the
    firewall and select `Retry LAN probe` on both clients.
-7. Export the redacted report from each client and compare `room.id`, `game_id`, final state,
-   `probe.frames_received`, and `probe.transcript_checksum`. Probe evidence deliberately omits
-   nonces, peer endpoints, and local user identifiers.
+7. Export the redacted report from each client. Copy both reports to one machine and verify them:
+
+   ```bash
+   opencade-match-verify host-report.json guest-report.json
+   ```
+
+   A pass prints JSON with `"verified":true`; a mismatch prints a stable error code to stderr and
+   exits non-zero. Reports deliberately omit nonces, endpoints, user identifiers, session material,
+   and local paths.
 
 For transport-only diagnosis without the desktop flow, build `opencade-match-probe` and run one
 process on each host with complementary arguments:
@@ -39,14 +45,21 @@ cargo run -p opencade-networking --bin opencade-match-probe -- \
 ```
 
 The other host swaps local/peer addresses and users and uses `--role guest` with the same room,
-game, session key, frame count, and timeout. The command prints a machine-readable JSON report.
+game, session key, frame count, and timeout. The command prints the same canonical, redacted JSON
+format as the desktop client. Download both Windows tools from the `opencade-lan-tools-windows`
+artifact on a successful `main` CI run, or build them with:
+
+```bash
+cargo build -p opencade-networking --bins --release --locked
+```
 
 ## Pass criteria
 
 - Both clients agree on the room and users.
 - No non-member can mutate or signal into the room.
 - The UDP transcript is ordered and identical at both endpoints.
-- Both reports contain the same `transcript_checksum` and `frames_received = 60`.
+- `opencade-match-verify` accepts the host/guest report pair: same room, game, checksum, finished
+  state, opposite roles, direct UDP, and exactly 60 received frames.
 - The match row has `started_at` and `ended_at`.
 - Reports contain no session token, password, full ROM path, or emulator binary.
 

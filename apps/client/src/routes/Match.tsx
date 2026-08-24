@@ -50,6 +50,7 @@ export default function Match({
         : state === "finished"
           ? "Match complete"
           : `Room ${state}`;
+  const completedRoom = room.data?.state === "finished" ? room.data : undefined;
   return (
     <section className="match-stage">
       <p className="eyebrow">Room {roomId.slice(0, 8)}</p>
@@ -93,10 +94,10 @@ export default function Match({
             {isResetting ? "Resetting LAN probe…" : "Retry LAN probe"}
           </button>
         )}
-        {room.data && (
+        {completedRoom && probeReport && (
           <button
             className="secondary"
-            onClick={() => downloadMatchReport(room.data, probeReport ?? undefined)}
+            onClick={() => downloadMatchReport(completedRoom, probeReport)}
           >
             Export report
           </button>
