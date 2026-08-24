@@ -379,7 +379,7 @@ mod tests {
         for attempt in 0..10 {
             let room_id = format!("room-{attempt}");
             let mut host = report(MatchReportRole::Host);
-            host.room.id = room_id.clone();
+            host.room.id.clone_from(&room_id);
             let mut guest = report(MatchReportRole::Guest);
             guest.room.id = room_id;
             if attempt >= 8 {
