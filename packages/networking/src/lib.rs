@@ -2,8 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
+mod probe;
+
+pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
+
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
+const MAX_DATAGRAM_BYTES: usize = 2_048;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputFrame {
@@ -47,6 +52,15 @@ pub enum TransportError {
     Serialization(String),
     #[error("udp transport failed: {0}")]
     Io(String),
+    #[error("invalid match probe configuration: {0}")]
+    InvalidConfiguration(String),
+    #[error("received a datagram for a different match or peer")]
+    PeerMismatch,
+    #[error("match probe timed out after receiving {received_frames} of {expected_frames} frames")]
+    Timeout {
+        received_frames: u64,
+        expected_frames: u64,
+    },
 }
 
 /// Connected UDP transport for LAN proof runs. Authentication and endpoint negotiation remain in
@@ -57,14 +71,23 @@ pub struct UdpPeer {
 
 impl UdpPeer {
     pub async fn bind(local: SocketAddr, peer: SocketAddr) -> Result<Self, TransportError> {
+        let socket = Self::bind_unconnected(local).await?;
+        socket.connect(peer).await
+    }
+
+    pub async fn bind_unconnected(local: SocketAddr) -> Result<Self, TransportError> {
         let socket = tokio::net::UdpSocket::bind(local)
             .await
             .map_err(|error| TransportError::Io(error.to_string()))?;
-        socket
+        Ok(Self { socket })
+    }
+
+    pub async fn connect(self, peer: SocketAddr) -> Result<Self, TransportError> {
+        self.socket
             .connect(peer)
             .await
             .map_err(|error| TransportError::Io(error.to_string()))?;
-        Ok(Self { socket })
+        Ok(self)
     }
 
     pub fn local_addr(&self) -> Result<SocketAddr, TransportError> {
@@ -87,7 +110,7 @@ impl UdpPeer {
     }
 
     pub async fn receive(&self) -> Result<InputFrame, TransportError> {
-        let mut buffer = [0_u8; 1024];
+        let mut buffer = [0_u8; MAX_DATAGRAM_BYTES];
         let received = self
             .socket
             .recv(&mut buffer)
@@ -96,6 +119,32 @@ impl UdpPeer {
         let frame: InputFrame = serde_json::from_slice(&buffer[..received])
             .map_err(|error| TransportError::Serialization(error.to_string()))?;
         InputFrame::new(frame.frame, frame.player_id, frame.input)
+    }
+
+    async fn send_packet(&self, packet: &probe::ProbePacket) -> Result<(), TransportError> {
+        let encoded = serde_json::to_vec(packet)
+            .map_err(|error| TransportError::Serialization(error.to_string()))?;
+        if encoded.len() > MAX_DATAGRAM_BYTES {
+            return Err(TransportError::Serialization(
+                "match probe datagram exceeds maximum size".into(),
+            ));
+        }
+        self.socket
+            .send(&encoded)
+            .await
+            .map_err(|error| TransportError::Io(error.to_string()))?;
+        Ok(())
+    }
+
+    async fn receive_packet(&self) -> Result<probe::ProbePacket, TransportError> {
+        let mut buffer = [0_u8; MAX_DATAGRAM_BYTES];
+        let received = self
+            .socket
+            .recv(&mut buffer)
+            .await
+            .map_err(|error| TransportError::Io(error.to_string()))?;
+        serde_json::from_slice(&buffer[..received])
+            .map_err(|error| TransportError::Serialization(error.to_string()))
     }
 }
 
@@ -139,6 +188,7 @@ mod tests {
     use opencade_emulator_sdk::{
         EmulatorAdapter, MatchDescriptor, MockAdapter, PeerRole, TransportKind,
     };
+    use std::time::Duration;
 
     fn descriptor(role: PeerRole) -> MatchDescriptor {
         let (local_user_id, peer_user_id, local_endpoint, peer_endpoint) = match role {
@@ -248,5 +298,84 @@ mod tests {
             .expect("receive timeout")
             .expect("udp receive");
         assert_eq!(received, expected);
+    }
+
+    #[tokio::test]
+    async fn udp_match_probes_agree_on_a_deterministic_transcript() {
+        let reserve_host = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("reserve host");
+        let reserve_guest = tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("reserve guest");
+        let host_address = reserve_host.local_addr().expect("host address");
+        let guest_address = reserve_guest.local_addr().expect("guest address");
+        drop(reserve_host);
+        drop(reserve_guest);
+
+        let host_peer = UdpPeer::bind(host_address, guest_address)
+            .await
+            .expect("host peer");
+        let guest_peer = UdpPeer::bind(guest_address, host_address)
+            .await
+            .expect("guest peer");
+        let host_config = MatchProbeConfig::new(
+            direct_descriptor(PeerRole::Host, host_address, guest_address),
+            "shared-session",
+            60,
+            Duration::from_secs(2),
+        )
+        .expect("host config");
+        let guest_config = MatchProbeConfig::new(
+            direct_descriptor(PeerRole::Guest, guest_address, host_address),
+            "shared-session",
+            60,
+            Duration::from_secs(2),
+        )
+        .expect("guest config");
+
+        let (host, guest) = tokio::join!(
+            run_match_probe(&host_peer, &host_config),
+            run_match_probe(&guest_peer, &guest_config)
+        );
+        let host = host.expect("host report");
+        let guest = guest.expect("guest report");
+        assert_eq!(host.frames_received, 60);
+        assert_eq!(guest.frames_received, 60);
+        assert_eq!(host.transcript_checksum, guest.transcript_checksum);
+    }
+
+    #[test]
+    fn match_probe_rejects_an_in_memory_descriptor() {
+        let error = MatchProbeConfig::new(
+            descriptor(PeerRole::Host),
+            "shared-session",
+            60,
+            Duration::from_secs(2),
+        )
+        .expect_err("in-memory descriptor must be rejected");
+        assert!(matches!(error, TransportError::InvalidConfiguration(_)));
+    }
+
+    fn direct_descriptor(
+        role: PeerRole,
+        local_endpoint: SocketAddr,
+        peer_endpoint: SocketAddr,
+    ) -> MatchDescriptor {
+        let (local_user_id, peer_user_id) = match role {
+            PeerRole::Host => ("host", "guest"),
+            PeerRole::Guest => ("guest", "host"),
+        };
+        MatchDescriptor {
+            room_id: "proof-room".into(),
+            game_id: "sfiii3".into(),
+            local_user_id: local_user_id.into(),
+            peer_user_id: peer_user_id.into(),
+            role,
+            transport: TransportKind::DirectUdp,
+            local_endpoint,
+            peer_endpoint,
+            input_delay_frames: 2,
+        }
     }
 }

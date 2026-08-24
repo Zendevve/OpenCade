@@ -12,11 +12,15 @@ Updated 2026-08-23.
   acknowledgements and errors.
 - Rust-authoritative protocol payloads and generated TypeScript bindings with a CI drift gate.
 - React/Tauri login, games, lobby, challenge, room status, reconnect, local availability scan,
-  diagnostics, and redacted report export.
+  diagnostics, and redacted report export with direct-UDP frame/checksum evidence.
 - Safe process abstraction, canonical root checks, `PathBuf`/`OsString` arguments, process tracking,
   and FBNeo local detection/validation/launch.
-- Deterministic mock adapter, bounded in-memory input transport, and connected direct UDP transport.
-- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, TypeScript, and MSRV checks in CI.
+- Deterministic mock adapter, bounded in-memory input transport, and a nonce-bound direct-UDP match
+  runner wired through authenticated endpoint exchange and the desktop match screen.
+- A standalone two-node probe CLI plus a real two-process localhost test that verifies identical
+  60-frame transcripts and machine-readable reports.
+- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, two-process, TypeScript, and MSRV
+  checks in CI.
 
 ## Deliberately not claimed
 

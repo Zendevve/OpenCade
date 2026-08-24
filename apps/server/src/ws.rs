@@ -6,7 +6,10 @@ use axum::{
     http::{header, HeaderMap},
     response::{IntoResponse, Response},
 };
-use opencade_protocol::{is_supported_version, Envelope, PROTOCOL_VERSION};
+use opencade_protocol::{
+    is_supported_version, Envelope, MatchEndpointPayload, MatchProbeCompletedPayload,
+    PROTOCOL_VERSION,
+};
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::borrow::Cow;
@@ -181,7 +184,32 @@ async fn handle_text(
             )
             .await
         }
-        "signaling.offer" | "signaling.answer" | "signaling.candidate" => {
+        "signaling.offer"
+        | "signaling.answer"
+        | "signaling.candidate"
+        | "match.endpoint"
+        | "match.probe.completed" => {
+            if envelope.msg_type == "match.endpoint" && validate_match_endpoint(&envelope).is_err()
+            {
+                return send_error(
+                    socket,
+                    "invalid_candidate",
+                    "match endpoint candidate is invalid",
+                    Some(&envelope.request_id),
+                )
+                .await;
+            }
+            if envelope.msg_type == "match.probe.completed"
+                && validate_match_completion(&envelope).is_err()
+            {
+                return send_error(
+                    socket,
+                    "invalid_probe_report",
+                    "match probe completion is invalid",
+                    Some(&envelope.request_id),
+                )
+                .await;
+            }
             if let Err(error) = relay_to_room_members(state, user.id, &envelope, text).await {
                 return send_error(
                     socket,
@@ -194,7 +222,11 @@ async fn handle_text(
             send_envelope(
                 socket,
                 Envelope::reply(
-                    "signaling.relayed",
+                    match envelope.msg_type.as_str() {
+                        "match.endpoint" => "match.endpoint.relayed",
+                        "match.probe.completed" => "match.probe.completed.relayed",
+                        _ => "signaling.relayed",
+                    },
                     envelope.request_id,
                     json!({ "status": "relayed" }),
                 ),
@@ -211,6 +243,34 @@ async fn handle_text(
             .await
         }
     }
+}
+
+fn validate_match_endpoint(envelope: &Envelope<Value>) -> Result<(), ()> {
+    let candidate: MatchEndpointPayload =
+        serde_json::from_value(envelope.payload.clone()).map_err(|_| ())?;
+    candidate
+        .endpoint
+        .parse::<std::net::SocketAddr>()
+        .map_err(|_| ())?;
+    Uuid::parse_str(&candidate.nonce).map_err(|_| ())?;
+    Ok(())
+}
+
+fn validate_match_completion(envelope: &Envelope<Value>) -> Result<(), ()> {
+    let completion: MatchProbeCompletedPayload =
+        serde_json::from_value(envelope.payload.clone()).map_err(|_| ())?;
+    if completion.frames_received == 0 || completion.frames_received > 10_000 {
+        return Err(());
+    }
+    if completion.transcript_checksum.len() != 16
+        || !completion
+            .transcript_checksum
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(());
+    }
+    Ok(())
 }
 
 async fn relay_to_room_members(
@@ -341,5 +401,61 @@ mod tests {
                 .expect("protocol header"),
         );
         assert_eq!(websocket_token(&headers), Some("secret-token"));
+    }
+
+    #[test]
+    fn match_endpoint_requires_a_socket_address_and_uuid_nonce() {
+        let valid = Envelope::new(
+            "match.endpoint",
+            json!({
+                "room_id": Uuid::new_v4(),
+                "endpoint": "192.168.1.20:42000",
+                "nonce": Uuid::new_v4()
+            }),
+        );
+        assert!(validate_match_endpoint(&valid).is_ok());
+
+        let invalid_endpoint = Envelope::new(
+            "match.endpoint",
+            json!({
+                "room_id": Uuid::new_v4(),
+                "endpoint": "not-an-endpoint",
+                "nonce": Uuid::new_v4()
+            }),
+        );
+        assert!(validate_match_endpoint(&invalid_endpoint).is_err());
+
+        let invalid_nonce = Envelope::new(
+            "match.endpoint",
+            json!({
+                "room_id": Uuid::new_v4(),
+                "endpoint": "192.168.1.20:42000",
+                "nonce": "predictable"
+            }),
+        );
+        assert!(validate_match_endpoint(&invalid_nonce).is_err());
+    }
+
+    #[test]
+    fn match_completion_requires_bounded_frames_and_a_checksum() {
+        let valid = Envelope::new(
+            "match.probe.completed",
+            json!({
+                "room_id": Uuid::new_v4(),
+                "frames_received": 60,
+                "transcript_checksum": "0376c2e852f4fd25"
+            }),
+        );
+        assert!(validate_match_completion(&valid).is_ok());
+
+        let invalid = Envelope::new(
+            "match.probe.completed",
+            json!({
+                "room_id": Uuid::new_v4(),
+                "frames_received": 0,
+                "transcript_checksum": "not-a-checksum"
+            }),
+        );
+        assert!(validate_match_completion(&invalid).is_err());
     }
 }

@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Envelope } from "@opencade/protocol";
+import type {
+  Envelope,
+  MatchEndpointPayload,
+  MatchProbeCompletedPayload,
+} from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
 import { ApiError, api } from "./lib/api";
+import { parseMatchCompletion, parseMatchEndpoint } from "./lib/match";
+import { cancelMatchProbe } from "./lib/native";
 import { useSessionStore } from "./lib/store";
 import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
@@ -19,6 +25,9 @@ export default function App() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>({ name: "games" });
   const [connection, setConnection] = useState<ConnectionState>("idle");
+  const [activeSocket, setActiveSocket] = useState<OpenCadeSocket | null>(null);
+  const [peerEndpoint, setPeerEndpoint] = useState<MatchEndpointPayload | null>(null);
+  const [peerCompletion, setPeerCompletion] = useState<MatchProbeCompletedPayload | null>(null);
   const me = useQuery({
     queryKey: ["me", token],
     queryFn: () => {
@@ -37,6 +46,7 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
     const socket = new OpenCadeSocket(API_URL, token, setConnection);
+    setActiveSocket(socket);
     const unsubscribe = socket.subscribe((message: Envelope<unknown>) => {
       if (message.type.startsWith("challenge.")) {
         void queryClient.invalidateQueries({ queryKey: ["challenges"] });
@@ -45,11 +55,22 @@ export default function App() {
         const roomId = roomIdFromPayload(message.payload);
         if (roomId) setView({ name: "match", roomId });
       }
+      if (message.type === "match.endpoint") {
+        const endpoint = parseMatchEndpoint(message.payload);
+        if (endpoint) {
+          setPeerEndpoint(endpoint);
+        }
+      }
+      if (message.type === "match.probe.completed") {
+        const completion = parseMatchCompletion(message.payload);
+        if (completion) setPeerCompletion(completion);
+      }
     });
     socket.connect();
     return () => {
       unsubscribe();
       socket.close();
+      setActiveSocket((current) => (current === socket ? null : current));
     };
   }, [token, queryClient]);
 
@@ -63,19 +84,22 @@ export default function App() {
   }
   const logout = async () => {
     try {
+      if (view.name === "match") await cancelMatchProbe(view.roomId);
       await api.logout(token);
     } finally {
       clearSession();
     }
   };
+  const returnToGames = () => {
+    if (view.name === "match") void cancelMatchProbe(view.roomId);
+    setPeerEndpoint(null);
+    setPeerCompletion(null);
+    setView({ name: "games" });
+  };
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button
-          className="brand"
-          onClick={() => setView({ name: "games" })}
-          aria-label="OpenCade games"
-        >
+        <button className="brand" onClick={returnToGames} aria-label="OpenCade games">
           <span className="brand-glyph">OF</span>
           <span>OpenCade</span>
         </button>
@@ -102,7 +126,19 @@ export default function App() {
           />
         )}
         {view.name === "match" && (
-          <Match token={token} roomId={view.roomId} onDone={() => setView({ name: "games" })} />
+          <Match
+            token={token}
+            userId={user.id}
+            roomId={view.roomId}
+            socket={activeSocket}
+            peerEndpoint={peerEndpoint?.room_id === view.roomId ? peerEndpoint : undefined}
+            peerCompletion={peerCompletion?.room_id === view.roomId ? peerCompletion : undefined}
+            onProbeRetry={() => {
+              setPeerEndpoint(null);
+              setPeerCompletion(null);
+            }}
+            onDone={returnToGames}
+          />
         )}
       </main>
     </div>

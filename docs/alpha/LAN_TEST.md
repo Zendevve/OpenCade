@@ -18,17 +18,35 @@ direct UDP frame transport; it does not claim FBNeo netplay support.
 1. Register two separate users and select the same game.
 2. Keep both lobby screens open until each user is visible.
 3. User A sends a challenge; user B accepts it.
-4. Confirm both clients reach `connecting` and exchange a correlated signaling message.
-5. Run the direct-UDP proof harness on the selected LAN addresses and record connection time,
-   frame count, packet loss, and disconnect reason.
-6. Transition the test room to `playing`, then `finished`.
-7. Export the redacted report from each client and compare `room.id`, `game_id`, and final state.
+4. Confirm both clients reach `connecting`. Each desktop client reserves a UDP port and exchanges a
+   nonce-bound `match.endpoint` candidate through the authenticated WebSocket.
+5. Wait for both clients to report `Direct UDP verified`, with 60 received frames and the same
+   transcript checksum. The host then transitions the room to `playing` and `finished`.
+6. If either side reports a firewall or timeout error, allow the advertised UDP port through the
+   firewall and select `Retry LAN probe` on both clients.
+7. Export the redacted report from each client and compare `room.id`, `game_id`, final state,
+   `probe.frames_received`, and `probe.transcript_checksum`. Probe evidence deliberately omits
+   nonces, peer endpoints, and local user identifiers.
+
+For transport-only diagnosis without the desktop flow, build `opencade-match-probe` and run one
+process on each host with complementary arguments:
+
+```bash
+cargo run -p opencade-networking --bin opencade-match-probe -- \
+  --local 192.168.1.10:42000 --peer 192.168.1.11:42000 \
+  --room lan-test --game sfiii3 --local-user host --peer-user guest \
+  --role host --session-key shared-test-key --frames 60 --timeout-ms 5000
+```
+
+The other host swaps local/peer addresses and users and uses `--role guest` with the same room,
+game, session key, frame count, and timeout. The command prints a machine-readable JSON report.
 
 ## Pass criteria
 
 - Both clients agree on the room and users.
 - No non-member can mutate or signal into the room.
 - The UDP transcript is ordered and identical at both endpoints.
+- Both reports contain the same `transcript_checksum` and `frames_received = 60`.
 - The match row has `started_at` and `ended_at`.
 - Reports contain no session token, password, full ROM path, or emulator binary.
 
