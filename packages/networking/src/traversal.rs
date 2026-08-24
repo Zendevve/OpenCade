@@ -119,7 +119,7 @@ pub async fn punch_hole(
             {
                 Err(_) => break,
                 Ok(Err(error)) if matches!(error.kind(), std::io::ErrorKind::ConnectionRefused) => {
-                    continue
+                    continue;
                 }
                 Ok(Err(error)) => return Err(super::map_udp_error(error)),
                 Ok(Ok(received)) => received,
@@ -161,7 +161,7 @@ pub async fn punch_hole(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{run_match_probe, MatchProbeConfig};
+    use crate::{MatchProbeConfig, run_match_probe};
     use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 
     #[tokio::test]
@@ -281,13 +281,15 @@ mod tests {
             HolePunchConfig::new("room", "session", Vec::new(), 3, Duration::from_millis(500))
                 .is_err()
         );
-        assert!(HolePunchConfig::new(
-            "room",
-            "session",
-            vec!["0.0.0.0:0".parse().expect("unspecified")],
-            3,
-            Duration::from_millis(500)
-        )
-        .is_err());
+        assert!(
+            HolePunchConfig::new(
+                "room",
+                "session",
+                vec!["0.0.0.0:0".parse().expect("unspecified")],
+                3,
+                Duration::from_millis(500)
+            )
+            .is_err()
+        );
     }
 }

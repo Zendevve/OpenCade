@@ -1,14 +1,14 @@
-use axum::{extract::Path, extract::State, http::StatusCode, Json};
+use axum::{Json, extract::Path, extract::State, http::StatusCode};
 use opencade_protocol::{Envelope, RoomPayload, RoomState};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::{
     authn::AuthUser,
     error::AppError,
-    room_state::{from_database, to_database, transition, RoomEvent},
+    room_state::{RoomEvent, from_database, to_database, transition},
     state::AppState,
 };
 

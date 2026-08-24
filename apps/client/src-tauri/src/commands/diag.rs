@@ -1,4 +1,4 @@
-use opencade_networking::{discover_reflexive_address, NatMapping, UdpPeer};
+use opencade_networking::{NatMapping, UdpPeer, discover_reflexive_address};
 use serde::Serialize;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
@@ -14,11 +14,8 @@ pub struct NetworkDiagnostics {
 #[tauri::command]
 pub async fn network_test() -> NetworkDiagnostics {
     let started = Instant::now();
-    let server = std::env::var("OPENCADE_SERVER_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8080".into());
-    let reachable = tokio::net::TcpStream::connect(server)
-        .await
-        .is_ok();
+    let server = std::env::var("OPENCADE_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
+    let reachable = tokio::net::TcpStream::connect(server).await.is_ok();
     let stun_server = std::env::var("OPENCADE_STUN_SERVER")
         .ok()
         .and_then(|value| value.parse::<SocketAddr>().ok());

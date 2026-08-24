@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use opencade_protocol::{
-    MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole, MatchReportRoom,
-    MatchReportTransport, RoomState, MATCH_REPORT_SCHEMA_VERSION,
+    MATCH_REPORT_SCHEMA_VERSION, MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole,
+    MatchReportRoom, MatchReportTransport, RoomState,
 };
 use std::fs;
 use std::path::PathBuf;

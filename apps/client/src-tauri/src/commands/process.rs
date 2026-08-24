@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[derive(Default)]
 pub struct ProcessState {
@@ -11,10 +12,10 @@ pub struct ProcessState {
 }
 
 pub fn fbneo_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path_resolver()
+    app.path()
         .resource_dir()
         .map(|root| root.join("emulator").join("fbneo"))
-        .ok_or_else(|| "application resource directory is unavailable".into())
+        .map_err(|_| "application resource directory is unavailable".into())
 }
 
 #[tauri::command]

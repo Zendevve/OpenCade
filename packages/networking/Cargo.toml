@@ -1,20 +1,20 @@
 [package]
 name = "opencade-networking"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "OpenCade networking — signaling, NAT traversal, relay (placeholder for M1)"
 license = "Apache-2.0"
 repository = "https://github.com/opencade/opencade"
-rust-version = "1.78"
+rust-version = "1.98"
 
 [dependencies]
-chrono = "0.4"
+chrono = "0.4.45"
 opencade-emulator-sdk = { path = "../emulator-sdk" }
 opencade-protocol = { path = "../protocol" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "1"
-tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
-uuid = { version = "1", features = ["v4"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["macros", "net", "rt", "sync", "time"] }
+uuid = { version = "1.25.0", features = ["v4"] }
 
 [dev-dependencies]

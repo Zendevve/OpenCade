@@ -880,7 +880,7 @@ Archival example with explicit relay (when enabled) listens on `3478`/`3478/udp`
 
 ### 16.2 Dockerfiles
 
-- `apps/server/Dockerfile` — `rust:1.78-slim` builder → `debian:bookworm-slim` runtime, `sqlx migrate run` on start.
+- `apps/server/Dockerfile` — `rust:1.98-bookworm` builder → `debian:bookworm-slim` runtime, `sqlx migrate run` on start.
 - `services/relay/Dockerfile` — same pattern, binary `opencade-relay`.
 
 No `docker-compose.override.yml` in repo; devs create it locally if needed.

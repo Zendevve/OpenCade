@@ -1,9 +1,9 @@
 use chrono::Utc;
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
-use opencade_networking::{run_match_probe, MatchProbeConfig, UdpPeer};
+use opencade_networking::{MatchProbeConfig, UdpPeer, run_match_probe};
 use opencade_protocol::{
-    MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole, MatchReportRoom,
-    MatchReportTransport, RoomState, MATCH_REPORT_SCHEMA_VERSION,
+    MATCH_REPORT_SCHEMA_VERSION, MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole,
+    MatchReportRoom, MatchReportTransport, RoomState,
 };
 use std::env;
 use std::net::SocketAddr;

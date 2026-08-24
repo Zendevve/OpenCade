@@ -1,15 +1,15 @@
-use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::password_hash::{SaltString, rand_core::OsRng};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use opencade_protocol::Envelope;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{
-    authn::{generate_session_token, hash_token, AuthUser},
+    authn::{AuthUser, generate_session_token, hash_token},
     error::AppError,
     state::AppState,
 };

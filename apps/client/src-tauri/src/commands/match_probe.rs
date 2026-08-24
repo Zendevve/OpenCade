@@ -1,7 +1,7 @@
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 use opencade_networking::{
-    discover_reflexive_address, punch_hole, run_match_probe, HolePunchConfig, MatchProbeConfig,
-    MatchProbeReport, UdpPeer,
+    HolePunchConfig, MatchProbeConfig, MatchProbeReport, UdpPeer, discover_reflexive_address,
+    punch_hole, run_match_probe,
 };
 use opencade_protocol::{MatchCandidateKind, NatMappingState};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
 const MAX_ACTIVE_PROBES: usize = 8;
@@ -99,13 +99,15 @@ pub async fn reserve_match_probe(
     };
     let endpoint = SocketAddr::from((host, port));
     let stun = match request.stun_server {
-        Some(server) => match discover_reflexive_address(&peer, server, Duration::from_millis(1_500)).await {
-            Ok(observation) => Some(observation.reflexive_endpoint),
-            Err(error) => {
-                tracing::warn!(%error, %server, "STUN discovery failed; retaining host candidate");
-                None
+        Some(server) => {
+            match discover_reflexive_address(&peer, server, Duration::from_millis(1_500)).await {
+                Ok(observation) => Some(observation.reflexive_endpoint),
+                Err(error) => {
+                    tracing::warn!(%error, %server, "STUN discovery failed; retaining host candidate");
+                    None
+                }
             }
-        },
+        }
         None => None,
     };
     let candidate = MatchEndpointCandidate {
@@ -240,7 +242,8 @@ pub async fn cancel_match_probe(
 }
 
 async fn cancel_probe(state: &MatchProbeState, room_id: &str) {
-    if let Some(MatchProbeSlot::Running { cancel, .. }) = state.probes.lock().await.remove(room_id) {
+    if let Some(MatchProbeSlot::Running { cancel, .. }) = state.probes.lock().await.remove(room_id)
+    {
         let _ = cancel.send(true);
     }
 }
@@ -331,7 +334,8 @@ mod tests {
     async fn cancellation_interrupts_pending_probe() {
         let (cancel_tx, cancel_rx) = watch::channel(false);
         cancel_tx.send(true).expect("receiver remains active");
-        let result = cancel_or_complete(std::future::pending::<Result<(), String>>(), cancel_rx).await;
+        let result =
+            cancel_or_complete(std::future::pending::<Result<(), String>>(), cancel_rx).await;
         assert_eq!(result, Err("match probe cancelled".into()));
     }
 

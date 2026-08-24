@@ -244,7 +244,7 @@ the product claim or select a different externally managed emulator before conti
 5. Add `--migrate` and make the container run migrations before serving.
 6. Make `/health` liveness-only and `/ready` verify Postgres without returning raw DB errors.
 7. Remove Tauri `shell-open`, set a restrictive CSP, and enforce production session-secret checks.
-8. Add CI checks for `pnpm -r test`, typecheck, `docker compose config`, and Rust 1.78 MSRV.
+8. Add CI checks for `pnpm -r test`, typecheck, `docker compose config`, and Rust 1.98 MSRV.
 
 **Exit:** a clean database migrates, five real games are returned, bad DB state fails visibly, and
 router integration tests exercise the same app that `main` serves.

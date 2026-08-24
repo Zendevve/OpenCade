@@ -1,6 +1,6 @@
 use opencade_protocol::{
-    MatchCandidateKind, MatchReport, MatchReportTransport, NatMappingState, RoomState,
-    MATCH_REPORT_SCHEMA_VERSION,
+    MATCH_REPORT_SCHEMA_VERSION, MatchCandidateKind, MatchReport, MatchReportTransport,
+    NatMappingState, RoomState,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};

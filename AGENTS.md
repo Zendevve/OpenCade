@@ -9,7 +9,7 @@ OpenCade — open-source arcade netplay platform, clean-room alternative to prop
 ## Architecture & Data Flow
 
 - **System:** `apps/client` (Tauri) ↔ `apps/server` (Axum) over HTTPS/WS ` /ws` → P2P/relay between peers. Server never sees game inputs except when relaying as fallback.
-- **Client:** Tauri 1.x hosts React routes `Games | Lobbies | Friends | Servers | Settings`. Rust core owns `fs` (ROM scan under `emulator/<core>/ROMs/`), `process` (spawn via `tauri::api::process::Command` with arg escaping, no shell), `diag` (Network Test). State: TanStack Query + Zustand, WS client with typed `packages/protocol` discriminated unions and reconnect backoff.
+- **Client:** Tauri 2.x hosts React routes `Games | Lobbies | Friends | Servers | Settings`. Rust core owns `fs` (ROM scan under `emulator/<core>/ROMs/`), `process` (safe direct process spawning with arg escaping, no shell), `diag` (Network Test). State: TanStack Query + Zustand, WS client with typed `packages/protocol` discriminated unions and reconnect backoff.
 - **Server:** Single Axum monolith + `postgres:16-alpine` (no Redis in MVP). Routes `POST /api/v1/auth/*`, `GET /api/v1/games`, `GET /api/v1/lobbies/:game`, `POST /api/v1/rooms` + `.../:id/{accept,decline,cancel}`, WS `/ws` with versioned envelope `{type,version,request_id,timestamp,payload}` (`presence.update`, `chat.message`, `challenge.*`, `session.offer/answer/candidate`, `room.*`). In-memory presence Hub, Postgres for durable state.
 - **Networking:** Signaling relayed verbatim through server; client-driven UDP hole-punch → STUN hint (`GET /servers` returns `stun:host:port` when configured) → WS relay fallback (in-process `relay` module, future `services/relay` binary). Room states `WAITING → CHALLENGING → CONNECTING → PLAYING → FINISHED|CANCELLED`. Latency `rtt_ms/loss/jitter` via `presence.update`.
 - **Reference only:** `docs/reference-fightcade-install.md` describes the opaque PyInstaller launcher (`emulator/fcade.exe`/`frm.exe` → `fightcade/launcher.py`) and `fbneo-training-mode` Lua surface — not used at runtime.
@@ -31,7 +31,7 @@ OpenCade — open-source arcade netplay platform, clean-room alternative to prop
 ## Development Commands
 
 ```bash
-# prerequisites: Rust 1.78+, pnpm 9+, Docker, Postgres 16
+# prerequisites: Rust 1.98+, Node 24+, pnpm 11+, Docker, Postgres 16
 pnpm install                    # workspace install (apps/*, packages/*)
 pnpm -C apps/client tauri dev   # Vite + Tauri dev (Windows)
 pnpm -C apps/client build       # TS check + Vite build
@@ -80,9 +80,9 @@ pnpm tauri dev -- --log opencade  # client logs to %APPDATA%/OpenCade/logs/openc
 
 ## Runtime/Tooling Preferences
 
-- **Runtime:** Rust 1.78+ (MSRV), Tauri 1.x (WebView2 on Windows), Node 20+ with **pnpm 9** (not npm/yarn), Postgres 16-alpine (sqlx compile-time checked). No Bun. No Electron.
+- **Runtime:** Rust 1.98+ (MSRV), Tauri 2.x (WebView2 on Windows), Node 24+ with **pnpm 11** (not npm/yarn), Postgres 16-alpine (sqlx compile-time checked). No Bun. No Electron.
 - **Package manager:** `pnpm` at root (`pnpm-workspace.yaml` covers `apps/*`, `packages/*`, `adapters/*`, `services/*`) — `pnpm install` only, commit `pnpm-lock.yaml`.
-- **Build:** `cargo build --workspace`, `pnpm -C apps/client build`, `tauri build` (MSI/NSIS on Windows). Docker multi-stage `rust:1.78 → debian:bookworm-slim`.
+- **Build:** `cargo build --workspace`, `pnpm -C apps/client build`, `tauri build` (MSI/NSIS on Windows). Docker multi-stage `rust:1.98-bookworm → debian:bookworm-slim`.
 - **Env:** `DATABASE_URL=postgres://opencade:opencade@db:5432/opencade`, `SESSION_SECRET` (32B CSPRNG), `RUST_LOG=info,opencade_server=debug`. Never commit `.env` (see `.env.example`).
 - **OS:** Windows 10/11 primary (Tauri), Linux/macOS viable via same stack — no `.lnk` shortcuts, use `tauri::path`.
 - **Tooling constraints:** keep `disableDevTools` off in dev, on in prod via Tauri `tauri.conf.json > build > devPath`. No `shell` permission in `tauri.conf.json`; use `process` allowlist.

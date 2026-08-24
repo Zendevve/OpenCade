@@ -1,4 +1,4 @@
-use super::{InputFrame, TransportError, UdpPeer, MAX_INPUT_BYTES};
+use super::{InputFrame, MAX_INPUT_BYTES, TransportError, UdpPeer};
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 use opencade_protocol::{MatchCandidateKind, NatMappingState};
 use serde::{Deserialize, Serialize};

@@ -22,28 +22,31 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://opencade:opencade@localhost:5432/opencade".to_string());
-        let session_secret = env::var("SESSION_SECRET")
-            .unwrap_or_else(|_| "dev-session-secret-change-me".to_string());
-        let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-        let port = match env::var("PORT") {
-            Ok(value) => value
+        Self::from_lookup(|key| env::var(key).ok())
+    }
+
+    fn from_lookup(mut lookup: impl FnMut(&str) -> Option<String>) -> Result<Self, ConfigError> {
+        let database_url = lookup("DATABASE_URL")
+            .unwrap_or_else(|| "postgres://opencade:opencade@localhost:5432/opencade".to_string());
+        let session_secret =
+            lookup("SESSION_SECRET").unwrap_or_else(|| "dev-session-secret-change-me".to_string());
+        let rust_log = lookup("RUST_LOG").unwrap_or_else(|| "info".to_string());
+        let port = match lookup("PORT") {
+            Some(value) => value
                 .parse::<u16>()
                 .ok()
                 .filter(|port| *port > 0)
                 .ok_or(ConfigError::InvalidPort)?,
-            Err(_) => 8080,
+            None => 8080,
         };
-        let production = env::var("OPENCADE_ENV")
-            .map(|value| value.eq_ignore_ascii_case("production"))
-            .unwrap_or(false);
+        let production =
+            lookup("OPENCADE_ENV").is_some_and(|value| value.eq_ignore_ascii_case("production"));
         if production && session_secret.len() < 32 {
             return Err(ConfigError::WeakProductionSecret);
         }
 
-        let allowed_origins = env::var("ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "http://localhost:1420,tauri://localhost".to_string())
+        let allowed_origins = lookup("ALLOWED_ORIGINS")
+            .unwrap_or_else(|| "http://localhost:1420,tauri://localhost".to_string())
             .split(',')
             .map(str::trim)
             .filter(|origin| !origin.is_empty())
@@ -78,66 +81,47 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
+    use std::collections::HashMap;
 
-    const KEYS: [&str; 6] = [
-        "DATABASE_URL",
-        "SESSION_SECRET",
-        "RUST_LOG",
-        "PORT",
-        "OPENCADE_ENV",
-        "ALLOWED_ORIGINS",
-    ];
-
-    fn clear_env() {
-        for key in KEYS {
-            env::remove_var(key);
-        }
+    fn config(values: &[(&str, &str)]) -> Result<Config, ConfigError> {
+        let values = values.iter().copied().collect::<HashMap<_, _>>();
+        Config::from_lookup(|key| values.get(key).map(|value| (*value).to_string()))
     }
 
     #[test]
-    #[serial]
     fn defaults_are_safe_for_local_development() {
-        clear_env();
-        let config = Config::from_env().expect("development defaults should be valid");
+        let config = config(&[]).expect("development defaults should be valid");
         assert_eq!(config.port, 8080);
         assert!(!config.production);
         assert!(config.allowed_origins.contains(&"tauri://localhost".into()));
-        clear_env();
     }
 
     #[test]
-    #[serial]
     fn rejects_invalid_port_instead_of_hiding_configuration_error() {
-        clear_env();
-        env::set_var("PORT", "invalid");
-        assert_eq!(Config::from_env(), Err(ConfigError::InvalidPort));
-        clear_env();
+        assert_eq!(
+            config(&[("PORT", "invalid")]),
+            Err(ConfigError::InvalidPort)
+        );
     }
 
     #[test]
-    #[serial]
     fn rejects_weak_production_secret() {
-        clear_env();
-        env::set_var("OPENCADE_ENV", "production");
-        env::set_var("SESSION_SECRET", "weak");
-        assert_eq!(Config::from_env(), Err(ConfigError::WeakProductionSecret));
-        clear_env();
+        assert_eq!(
+            config(&[("OPENCADE_ENV", "production"), ("SESSION_SECRET", "weak")]),
+            Err(ConfigError::WeakProductionSecret)
+        );
     }
 
     #[test]
-    #[serial]
     fn parses_explicit_origins() {
-        clear_env();
-        env::set_var(
+        let config = config(&[(
             "ALLOWED_ORIGINS",
             "https://one.example, https://two.example",
-        );
-        let config = Config::from_env().expect("explicit origins should parse");
+        )])
+        .expect("explicit origins should parse");
         assert_eq!(
             config.allowed_origins,
             vec!["https://one.example", "https://two.example"]
         );
-        clear_env();
     }
 }

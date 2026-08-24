@@ -57,7 +57,7 @@ impl AppState {
             tracing::error!(%user_id, %message_type, "failed to serialize websocket notification");
             return;
         };
-        if let Err(error) = target.try_send(Message::Text(text)) {
+        if let Err(error) = target.try_send(Message::Text(text.into())) {
             tracing::warn!(%error, %user_id, %message_type, "websocket notification queue unavailable");
         }
     }

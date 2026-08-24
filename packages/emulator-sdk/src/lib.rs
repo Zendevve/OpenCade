@@ -371,15 +371,17 @@ mod tests {
             spec.args.last(),
             Some(&rom.canonicalize().expect("canonical rom").into_os_string())
         );
-        assert!(spawn_validated(
-            &RecordingLauncher,
-            &executable,
-            &emulator_root,
-            &outside,
-            &rom_root,
-            &[],
-        )
-        .is_err());
+        assert!(
+            spawn_validated(
+                &RecordingLauncher,
+                &executable,
+                &emulator_root,
+                &outside,
+                &rom_root,
+                &[],
+            )
+            .is_err()
+        );
 
         std::fs::remove_dir_all(fixture).expect("remove fixture");
     }

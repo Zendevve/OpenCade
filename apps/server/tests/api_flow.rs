@@ -1,12 +1,12 @@
 use axum::{
-    body::{to_bytes, Body},
-    http::{header, Method, Request, StatusCode},
     Router,
+    body::{Body, to_bytes},
+    http::{Method, Request, StatusCode, header},
 };
 use futures_util::{SinkExt, StreamExt};
 use opencade_protocol::Envelope;
-use opencade_server::{build_app, AppState, Config};
-use serde_json::{json, Value};
+use opencade_server::{AppState, Config, build_app};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -219,7 +219,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         "payload": { "room_id": room_id, "sdp": "v=0\\r\\n" }
     });
     host_socket
-        .send(Message::Text(offer.to_string()))
+        .send(Message::Text(offer.to_string().into()))
         .await
         .expect("send offer");
     let relayed = guest_socket
@@ -254,7 +254,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         }
     });
     host_socket
-        .send(Message::Text(endpoint.to_string()))
+        .send(Message::Text(endpoint.to_string().into()))
         .await
         .expect("send endpoint");
     let relayed_endpoint = guest_socket
@@ -292,7 +292,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         }
     });
     guest_socket
-        .send(Message::Text(completion.to_string()))
+        .send(Message::Text(completion.to_string().into()))
         .await
         .expect("send completion");
     let relayed_completion = host_socket

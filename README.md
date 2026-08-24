@@ -24,7 +24,7 @@ OpenCade exists to replace proprietary Fightcade with a community-owned, self-ho
 
 - Docker + Docker Compose (server + Postgres)
 - Rust stable + `sqlx-cli` (server)
-- Node.js 20+ + pnpm 9+ (client)
+- Node.js 24+ + pnpm 11+ (client)
 - Rust + Tauri prerequisites ([tauri.app/start/prerequisites](https://tauri.app/start/prerequisites))
 
 ### 1. Server (Docker Compose)

@@ -1,13 +1,13 @@
 [package]
 name = "opencade-adapter-fbneo"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "OpenCade FBNeo emulator adapter (placeholder)"
 license = "Apache-2.0"
 repository = "https://github.com/opencade/opencade"
-rust-version = "1.78"
+rust-version = "1.98"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-thiserror = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
 opencade-emulator-sdk = { path = "../../packages/emulator-sdk" }

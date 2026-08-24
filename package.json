@@ -2,7 +2,7 @@
   "name": "opencade",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@9.15.9",
+  "packageManager": "pnpm@11.23.0",
   "description": "OpenCade monorepo root",
   "scripts": {
     "format:check": "prettier --check .",
@@ -12,6 +12,6 @@
     "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
-    "prettier": "^3.3.3"
+    "prettier": "^3.9.6"
   }
 }

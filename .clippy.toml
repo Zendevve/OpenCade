@@ -1,9 +1,9 @@
 # Clippy configuration for OpenCade
 # See https://doc.rust-lang.org/clippy/configuration.html
 # This file is read by `cargo clippy` at workspace root.
-# Rust 1.78 reads this dotfile directly; keep a single config to avoid ambiguity.
+# Rust 1.98 reads this dotfile directly; keep a single config to avoid ambiguity.
 
-msrv = "1.78"
+msrv = "1.98"
 cognitive-complexity-threshold = 30
 too-many-arguments-threshold = 7
 type-complexity-threshold = 250

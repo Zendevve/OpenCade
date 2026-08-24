@@ -1,6 +1,6 @@
 use opencade_emulator_sdk::{
-    spawn_validated, AdapterCapabilities, AdapterError, DetectedEmulator, EmulatorAdapter,
-    NetplayReadiness, StdProcessLauncher, ValidationReport,
+    AdapterCapabilities, AdapterError, DetectedEmulator, EmulatorAdapter, NetplayReadiness,
+    StdProcessLauncher, ValidationReport, spawn_validated,
 };
 use std::path::{Path, PathBuf};
 use std::process::Child;

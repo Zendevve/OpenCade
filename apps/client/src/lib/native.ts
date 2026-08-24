@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 export type GameAvailability = { game_id: string; available: boolean; warnings: string[] };
 export type NetworkDiagnostics = {

@@ -7,14 +7,14 @@ mod report;
 mod stun;
 mod traversal;
 
-pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
+pub use probe::{MAX_PROBE_FRAMES, MatchProbeConfig, MatchProbeReport, run_match_probe};
 pub use report::{
-    read_match_report, summarize_match_reports, verify_match_reports, AlphaCampaignFailure,
-    AlphaCampaignSummary, CompatibilityResult, MatchVerification, ReportReadError,
-    ReportVerificationError, ALPHA_MATCH_FRAMES, MAX_REPORT_BYTES,
+    ALPHA_MATCH_FRAMES, AlphaCampaignFailure, AlphaCampaignSummary, CompatibilityResult,
+    MAX_REPORT_BYTES, MatchVerification, ReportReadError, ReportVerificationError,
+    read_match_report, summarize_match_reports, verify_match_reports,
 };
-pub use stun::{discover_reflexive_address, NatMapping, StunObservation};
-pub use traversal::{punch_hole, HolePunchConfig, HolePunchReport};
+pub use stun::{NatMapping, StunObservation, discover_reflexive_address};
+pub use traversal::{HolePunchConfig, HolePunchReport, punch_hole};
 
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
