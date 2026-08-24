@@ -241,6 +241,81 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     assert_eq!(acknowledgement.msg_type, "signaling.relayed");
     assert_eq!(acknowledgement.request_id, request_id);
 
+    let endpoint_request_id = "endpoint-integration-1";
+    let endpoint = json!({
+        "type": "match.endpoint",
+        "version": "1.0",
+        "request_id": endpoint_request_id,
+        "timestamp": chrono::Utc::now(),
+        "payload": {
+            "room_id": room_id,
+            "endpoint": "192.168.1.20:42000",
+            "nonce": "8a1110d5-8dd2-4ad2-9c88-ad9768bc4905"
+        }
+    });
+    host_socket
+        .send(Message::Text(endpoint.to_string()))
+        .await
+        .expect("send endpoint");
+    let relayed_endpoint = guest_socket
+        .next()
+        .await
+        .expect("relayed endpoint")
+        .expect("guest endpoint frame");
+    let relayed_endpoint: Envelope<Value> =
+        serde_json::from_str(relayed_endpoint.to_text().expect("text endpoint"))
+            .expect("endpoint envelope");
+    assert_eq!(relayed_endpoint.msg_type, "match.endpoint");
+    assert_eq!(relayed_endpoint.request_id, endpoint_request_id);
+    assert_eq!(relayed_endpoint.payload["endpoint"], "192.168.1.20:42000");
+    let endpoint_ack = host_socket
+        .next()
+        .await
+        .expect("endpoint ack")
+        .expect("host endpoint frame");
+    let endpoint_ack: Envelope<Value> =
+        serde_json::from_str(endpoint_ack.to_text().expect("text endpoint ack"))
+            .expect("endpoint ack envelope");
+    assert_eq!(endpoint_ack.msg_type, "match.endpoint.relayed");
+    assert_eq!(endpoint_ack.request_id, endpoint_request_id);
+
+    let completion_request_id = "completion-integration-1";
+    let completion = json!({
+        "type": "match.probe.completed",
+        "version": "1.0",
+        "request_id": completion_request_id,
+        "timestamp": chrono::Utc::now(),
+        "payload": {
+            "room_id": room_id,
+            "frames_received": 60,
+            "transcript_checksum": "0376c2e852f4fd25"
+        }
+    });
+    guest_socket
+        .send(Message::Text(completion.to_string()))
+        .await
+        .expect("send completion");
+    let relayed_completion = host_socket
+        .next()
+        .await
+        .expect("relayed completion")
+        .expect("host completion frame");
+    let relayed_completion: Envelope<Value> =
+        serde_json::from_str(relayed_completion.to_text().expect("text completion"))
+            .expect("completion envelope");
+    assert_eq!(relayed_completion.msg_type, "match.probe.completed");
+    assert_eq!(relayed_completion.request_id, completion_request_id);
+    let completion_ack = guest_socket
+        .next()
+        .await
+        .expect("completion ack")
+        .expect("guest completion frame");
+    let completion_ack: Envelope<Value> =
+        serde_json::from_str(completion_ack.to_text().expect("text completion ack"))
+            .expect("completion ack envelope");
+    assert_eq!(completion_ack.msg_type, "match.probe.completed.relayed");
+    assert_eq!(completion_ack.request_id, completion_request_id);
+
     let (start_status, started) = request(
         &app,
         Method::POST,

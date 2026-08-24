@@ -205,11 +205,8 @@ pub async fn accept_challenge(
         .bind(user.id)
         .execute(&mut *transaction)
         .await?;
-    let next = transition(
-        opencade_protocol::RoomState::Challenging,
-        RoomEvent::Accept,
-    )
-    .map_err(|error| AppError::Conflict(error.to_string()))?;
+    let next = transition(opencade_protocol::RoomState::Challenging, RoomEvent::Accept)
+        .map_err(|error| AppError::Conflict(error.to_string()))?;
     sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
         .bind(challenge.room_id)
         .bind(to_database(&next))

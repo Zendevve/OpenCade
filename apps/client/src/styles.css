@@ -278,6 +278,10 @@ input {
   border-color: #45464b;
   color: #e8e5df;
 }
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
 .form-error {
   color: #ff8e86;
   margin: 0;
@@ -374,7 +378,11 @@ input {
 }
 .match-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
+}
+.match-actions .secondary {
+  min-height: 44px;
 }
 @media (max-width: 760px) {
   .auth-layout {

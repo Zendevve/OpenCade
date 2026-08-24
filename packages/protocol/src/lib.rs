@@ -157,6 +157,26 @@ pub struct SessionCandidatePayload {
     pub sdp_mid: Option<String>,
     pub sdp_mline_index: Option<u16>,
 }
+
+/// Direct-UDP endpoint candidate exchanged between authenticated room members.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchEndpointPayload.ts")]
+#[serde(rename_all = "snake_case")]
+pub struct MatchEndpointPayload {
+    pub room_id: String,
+    pub endpoint: String,
+    pub nonce: String,
+}
+
+/// Result of a completed direct-UDP proof, relayed to the other room member.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchProbeCompletedPayload.ts")]
+#[serde(rename_all = "snake_case")]
+pub struct MatchProbeCompletedPayload {
+    pub room_id: String,
+    pub frames_received: u32,
+    pub transcript_checksum: String,
+}
 /// Room lifecycle states. Serialized as `snake_case` strings.
 /// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);
 /// AGENTS.md describes WAITING→CHALLENGING→CONNECTING→PLAYING→FINISHED|CANCELLED.
@@ -272,6 +292,35 @@ mod tests {
         .unwrap();
         assert_eq!(offer_back.payload, offer);
         assert_eq!(candidate_back.payload, candidate);
+    }
+
+    #[test]
+    fn roundtrip_match_endpoint() {
+        let payload = MatchEndpointPayload {
+            room_id: "room-1".into(),
+            endpoint: "192.168.1.20:42000".into(),
+            nonce: "8a1110d5-8dd2-4ad2-9c88-ad9768bc4905".into(),
+        };
+        let encoded = serde_json::to_string(&Envelope::new("match.endpoint", payload.clone()))
+            .expect("serialize endpoint");
+        let decoded: Envelope<MatchEndpointPayload> =
+            serde_json::from_str(&encoded).expect("deserialize endpoint");
+        assert_eq!(decoded.payload, payload);
+    }
+
+    #[test]
+    fn roundtrip_match_probe_completion() {
+        let payload = MatchProbeCompletedPayload {
+            room_id: "room-1".into(),
+            frames_received: 60,
+            transcript_checksum: "0376c2e852f4fd25".into(),
+        };
+        let encoded =
+            serde_json::to_string(&Envelope::new("match.probe.completed", payload.clone()))
+                .expect("serialize completion");
+        let decoded: Envelope<MatchProbeCompletedPayload> =
+            serde_json::from_str(&encoded).expect("deserialize completion");
+        assert_eq!(decoded.payload, payload);
     }
 
     #[test]

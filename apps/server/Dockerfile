@@ -25,14 +25,16 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
     && echo "" > packages/shared/src/lib.rs \
     && echo "" > packages/game-definitions/src/lib.rs \
     && echo "" > adapters/fbneo/src/lib.rs \
-    && cargo build --release 2>/dev/null || true
+    && cargo build --release --locked
 
 # Copy the real sources (invalidates cache only when source changes).
 COPY . .
 
-# Build the server binary.
-RUN cargo build --release --locked -p opencade-server \
-    && ls -lh target/release/opencade-server* 2>/dev/null || ls -lh target/release/
+# Remove only the dummy workspace artifacts before compiling the real sources. Dependency
+# artifacts remain cached, while Cargo can no longer mistake a stub crate for the application.
+RUN cargo clean --release -p opencade-server -p opencade-protocol \
+    && cargo build --release --locked -p opencade-server \
+    && test -x target/release/opencade-server
 
 # --- runtime ---------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime

@@ -318,7 +318,7 @@ observed alpha failure rates.
 
 | Cause of failure                                                                      | Mitigation now                                                                                    |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| FBNeo can launch a ROM but cannot consume OpenCade's session/input transport         | Gate 0 before further product work; use a mock adapter and require a documented real-adapter path |
+| FBNeo can launch a ROM but cannot consume OpenCade's session/input transport          | Gate 0 before further product work; use a mock adapter and require a documented real-adapter path |
 | Stub success responses hide schema and state-machine failures                         | Remove fallbacks; test the composed router against migrated Postgres                              |
 | WebSocket signaling is mistaken for a suitable rollback data plane                    | Separate control/data contracts and measure the data plane independently                          |
 | Protocol copies drift across Rust, generated TS, and handwritten TS                   | One schema/type source plus a generation-diff CI gate                                             |

@@ -4,6 +4,8 @@ export { createEnvelope, validateEnvelope, parseEnvelope, serializeEnvelope } fr
 export type {
   PresencePayload,
   ChatPayload,
+  MatchEndpointPayload,
+  MatchProbeCompletedPayload,
   ChallengePayload,
   ChallengeState,
   SessionOfferPayload,

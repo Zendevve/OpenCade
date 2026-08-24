@@ -3,4 +3,4 @@
 /**
  * SDP offer relayed verbatim between authenticated room members.
  */
-export type SessionOfferPayload = { room_id: string; sdp: string };
+export type SessionOfferPayload = { room_id: string, sdp: string, };

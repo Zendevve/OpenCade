@@ -1,5 +1,7 @@
 import type { ChallengePayload } from "./generated/ChallengePayload.js";
 import type { ChatPayload } from "./generated/ChatPayload.js";
+import type { MatchEndpointPayload } from "./generated/MatchEndpointPayload.js";
+import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompletedPayload.js";
 import type { PresencePayload } from "./generated/PresencePayload.js";
 import type { RoomPayload } from "./generated/RoomPayload.js";
 import type { SessionAnswerPayload } from "./generated/SessionAnswerPayload.js";
@@ -9,6 +11,8 @@ import type { SessionOfferPayload } from "./generated/SessionOfferPayload.js";
 export type {
   ChallengePayload,
   ChatPayload,
+  MatchEndpointPayload,
+  MatchProbeCompletedPayload,
   PresencePayload,
   RoomPayload,
   SessionAnswerPayload,
@@ -40,6 +44,10 @@ export type EnvelopeType =
   | "signaling.answer"
   | "signaling.candidate"
   | "signaling.relayed"
+  | "match.endpoint"
+  | "match.endpoint.relayed"
+  | "match.probe.completed"
+  | "match.probe.completed.relayed"
   | "room.state"
   | "connection.hello"
   | "error"
@@ -58,6 +66,10 @@ const KNOWN_ENVELOPE_TYPES: ReadonlySet<string> = new Set<EnvelopeType>([
   "signaling.answer",
   "signaling.candidate",
   "signaling.relayed",
+  "match.endpoint",
+  "match.endpoint.relayed",
+  "match.probe.completed",
+  "match.probe.completed.relayed",
   "room.state",
   "connection.hello",
   "error",
