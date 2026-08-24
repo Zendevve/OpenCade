@@ -21,6 +21,16 @@ export type Challenge = {
   challenged_id: string;
   state: "pending" | "accepted" | "declined" | "cancelled";
 };
+export type RelayTicket = {
+  relay_url: string;
+  ticket: {
+    room_id: string;
+    user_id: string;
+    expires_at: number;
+    signature: string;
+  };
+};
+export type MatchLaunchGrant = { grant: string; expires_at: string };
 
 type ErrorPayload = { code?: string; message?: string };
 
@@ -35,7 +45,28 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "http://localhost:8080";
+let apiBase = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "http://localhost:8080";
+
+export function configureApiBase(url: string): void {
+  const parsed = new URL(url);
+  if (!(["http:", "https:"] as string[]).includes(parsed.protocol)) {
+    throw new Error("OpenCade API URL must use HTTP or HTTPS");
+  }
+  if (
+    parsed.protocol === "http:" &&
+    !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)
+  ) {
+    throw new Error("Remote OpenCade API URLs must use HTTPS");
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("OpenCade API URL must not contain credentials, a query, or a fragment");
+  }
+  apiBase = parsed.toString().replace(/\/$/, "");
+}
+
+export function getApiBase(): string {
+  return apiBase;
+}
 
 async function request<T>(path: string, token?: string | null, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
@@ -45,7 +76,7 @@ async function request<T>(path: string, token?: string | null, init?: RequestIni
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    response = await fetch(`${apiBase}${path}`, { ...init, headers });
   } catch {
     throw new ApiError(0, "network_unavailable", "OpenCade server is unreachable");
   }
@@ -114,6 +145,28 @@ export const api = {
   room: (token: string, roomId: string) => request<RoomPayload>(`/api/v1/rooms/${roomId}`, token),
   startRoom: (token: string, roomId: string) =>
     request<RoomPayload>(`/api/v1/rooms/${roomId}/start`, token, post()),
-  finishRoom: (token: string, roomId: string) =>
-    request<RoomPayload>(`/api/v1/rooms/${roomId}/finish`, token, post()),
+  finishRoom: (token: string, roomId: string, exitCode?: number | null) =>
+    request<RoomPayload>(
+      `/api/v1/rooms/${roomId}/finish`,
+      token,
+      post({ exit_code: exitCode ?? null })
+    ),
+  createLaunchGrant: (
+    token: string,
+    roomId: string,
+    localEndpoint: string,
+    peerEndpoint: string,
+    inputDelayFrames = 2
+  ) =>
+    request<MatchLaunchGrant>(
+      `/api/v1/rooms/${roomId}/launch-grant`,
+      token,
+      post({
+        local_endpoint: localEndpoint,
+        peer_endpoint: peerEndpoint,
+        input_delay_frames: inputDelayFrames,
+      })
+    ),
+  relayTicket: (token: string, roomId: string) =>
+    request<RelayTicket>(`/api/v1/rooms/${roomId}/relay-ticket`, token, post()),
 };

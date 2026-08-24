@@ -6,6 +6,7 @@ pub mod latency;
 pub mod nat;
 
 mod probe;
+mod relay;
 mod report;
 mod stun;
 mod traversal;
@@ -14,11 +15,16 @@ pub use latency::LatencyMetrics;
 pub use nat::{
     FALLBACK_ORDER, FallbackOrder, NatTraversal, NatType, next_transport, transport_for_nat,
 };
-pub use probe::{MAX_PROBE_FRAMES, MatchProbeConfig, MatchProbeReport, run_match_probe};
+pub use probe::{
+    MAX_PROBE_FRAMES, MatchProbeConfig, MatchProbeReport, run_match_probe, run_relay_match_probe,
+};
+pub use relay::RelayPeer;
 pub use report::{
-    ALPHA_MATCH_FRAMES, AlphaCampaignFailure, AlphaCampaignSummary, CompatibilityResult,
-    MAX_REPORT_BYTES, MatchVerification, ReportReadError, ReportVerificationError,
-    read_match_report, summarize_match_reports, verify_match_reports,
+    ALPHA_MATCH_FRAMES, AlphaCampaignEvidence, AlphaCampaignFailure, AlphaCampaignSummary,
+    CompatibilityResult, MAX_REPORT_BYTES, MatchVerification, ReportReadError,
+    ReportVerificationError, read_campaign_evidence, read_match_report,
+    summarize_campaign_evidence, summarize_match_reports, verify_match_reports,
+    verify_playable_match_reports,
 };
 pub use stun::{NatMapping, StunObservation, discover_reflexive_address};
 pub use traversal::{HolePunchConfig, HolePunchReport, punch_hole};
@@ -85,6 +91,8 @@ pub enum TransportError {
     InvalidStunResponse(String),
     #[error("UDP hole punch timed out after {attempts} attempts")]
     HolePunchTimeout { attempts: u8 },
+    #[error("relay transport failed: {0}")]
+    Relay(String),
 }
 
 /// Connected UDP transport for LAN proof runs. Authentication and endpoint negotiation remain in

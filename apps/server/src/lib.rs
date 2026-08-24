@@ -1,3 +1,4 @@
+pub mod auth_rate_limit;
 pub mod authn;
 pub mod config;
 pub mod error;
@@ -67,6 +68,18 @@ pub fn build_app(state: AppState) -> Router {
             post(routes::rooms::cancel_room),
         )
         .route("/api/v1/rooms/{id}/start", post(routes::rooms::start_room))
+        .route(
+            "/api/v1/rooms/{id}/relay-ticket",
+            post(routes::rooms::relay_ticket),
+        )
+        .route(
+            "/api/v1/rooms/{id}/launch-grant",
+            post(routes::rooms::create_launch_grant),
+        )
+        .route(
+            "/api/v1/match-launch-grants/consume",
+            post(routes::rooms::consume_launch_grant),
+        )
         .route(
             "/api/v1/rooms/{id}/finish",
             post(routes::rooms::finish_room),

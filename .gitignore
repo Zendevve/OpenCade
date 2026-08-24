@@ -37,6 +37,8 @@ apps/client/src-tauri/target/
 apps/client/src-tauri/gen/schemas/
 apps/client/dist/
 apps/client/bundle/
+/alpha-kit/
+/alpha-kit-tampered/
 
 # ── Environment / Secrets ────────────────────────────────────
 .env

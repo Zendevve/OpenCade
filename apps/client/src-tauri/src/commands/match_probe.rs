@@ -1,9 +1,10 @@
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 use opencade_networking::{
-    HolePunchConfig, MatchProbeConfig, MatchProbeReport, UdpPeer, discover_reflexive_address,
-    punch_hole, run_match_probe,
+    HolePunchConfig, MatchProbeConfig, MatchProbeReport, RelayPeer, UdpPeer,
+    discover_reflexive_address, punch_hole, run_match_probe, run_relay_match_probe,
 };
 use opencade_protocol::{MatchCandidateKind, NatMappingState};
+use opencade_shared::RelayTicket;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
@@ -57,6 +58,23 @@ pub struct RunMatchProbeRequest {
     pub role: PeerRole,
     pub peer_endpoint: SocketAddr,
     pub peer_reflexive_endpoint: Option<SocketAddr>,
+    pub peer_nonce: String,
+    #[serde(default = "default_frame_count")]
+    pub frame_count: u64,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RunRelayMatchProbeRequest {
+    pub relay_url: String,
+    pub ticket: RelayTicket,
+    pub room_id: String,
+    pub game_id: String,
+    pub local_user_id: String,
+    pub peer_user_id: String,
+    pub role: PeerRole,
+    pub local_nonce: String,
     pub peer_nonce: String,
     #[serde(default = "default_frame_count")]
     pub frame_count: u64,
@@ -227,6 +245,49 @@ pub async fn run_reserved_match_probe(
         frames = report.frames_received,
         elapsed_ms = report.elapsed_ms,
         "LAN match probe completed"
+    );
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn run_relay_match_probe_command(
+    request: RunRelayMatchProbeRequest,
+) -> Result<MatchProbeReport, String> {
+    validate_room_id(&request.room_id)?;
+    if request.ticket.room_id != request.room_id || request.ticket.user_id != request.local_user_id
+    {
+        return Err("relay ticket does not match the local room participant".into());
+    }
+    let session_key = combined_session_key(&request.local_nonce, &request.peer_nonce)?;
+    let descriptor = MatchDescriptor {
+        room_id: request.room_id,
+        game_id: request.game_id,
+        local_user_id: request.local_user_id,
+        peer_user_id: request.peer_user_id,
+        role: request.role,
+        transport: TransportKind::Relay,
+        local_endpoint: "0.0.0.0:0".parse().map_err(|_| "invalid relay endpoint")?,
+        peer_endpoint: "0.0.0.0:0".parse().map_err(|_| "invalid relay endpoint")?,
+        input_delay_frames: 2,
+    };
+    let config = MatchProbeConfig::new(
+        descriptor,
+        session_key,
+        request.frame_count,
+        Duration::from_millis(request.timeout_ms),
+    )
+    .map_err(|error| error.to_string())?;
+    let peer = RelayPeer::connect(&request.relay_url, &request.ticket)
+        .await
+        .map_err(|error| error.to_string())?;
+    let report = run_relay_match_probe(&peer, &config)
+        .await
+        .map_err(|error| error.to_string())?;
+    tracing::info!(
+        room_id = %report.room_id,
+        frames = report.frames_received,
+        elapsed_ms = report.elapsed_ms,
+        "relay match probe completed"
     );
     Ok(report)
 }
