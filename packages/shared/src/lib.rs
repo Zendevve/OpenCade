@@ -1,1 +1,1 @@
-// openfight-shared placeholder.
+// opencade-shared placeholder.

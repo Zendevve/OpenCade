@@ -1,10 +1,10 @@
 # Repository Guidelines
 
-> **Community:** https://discord.gg/Y4rDyTScPe — where we discuss OpenFight and everything around it (not only OpenFight).
+> **Community:** https://discord.gg/Y4rDyTScPe — where we discuss OpenCade and everything around it (not only OpenCade).
 
 ## Project Overview
 
-OpenFight — open-source arcade netplay platform, clean-room alternative to proprietary Fightcade. Monorepo at `D:/OpenFight` (Apache-2.0) with Tauri + React + TypeScript client and Rust + Axum + PostgreSQL server. `D:/Fightcade` (v2.1.45) is **read-only reference** — never copied into this repo (see `docs/ARCHITECTURE.md §2` and `docs/reference-fightcade-install.md`). Goal: lobby → challenge → versioned signaling → P2P (or WS relay) → safe emulator launch.
+OpenCade — open-source arcade netplay platform, clean-room alternative to proprietary Fightcade. Monorepo at `D:/OpenCade` (Apache-2.0) with Tauri + React + TypeScript client and Rust + Axum + PostgreSQL server. `D:/Fightcade` (v2.1.45) is **read-only reference** — never copied into this repo (see `docs/ARCHITECTURE.md §2` and `docs/reference-fightcade-install.md`). Goal: lobby → challenge → versioned signaling → P2P (or WS relay) → safe emulator launch.
 
 ## Architecture & Data Flow
 
@@ -22,7 +22,7 @@ OpenFight — open-source arcade netplay platform, clean-room alternative to pro
 - `packages/emulator-sdk/` — `pub trait EmulatorAdapter { detect/validate/get_version/launch/stop/configure }` + `LaunchCtx`, `ChildHandle`. No shell, path canonicalization + prefix check.
 - `packages/game-definitions/` — declarative `games/*.toml` (`schema_version=1`, `id`, `name`, `emulator="fbneo"`, `[launch] args=["{rom}"]`, `[validation] required_files=["neogeo.zip"]`) + `src/loader.rs` + legacy `emulator/*.json` → TOML importer (build-time only).
 - `adapters/fbneo/` — only required adapter in MVP (`fcadefbneo.exe` detection, `fcadefbneo.default.ini` version check, safe arg building). Future `flycast`/`snes9x` behind feature flags.
-- `services/relay/` — placeholder crate `openfight-relay` (future STUN/TURN); not required for MVP (in-process WS relay suffices).
+- `services/relay/` — placeholder crate `opencade-relay` (future STUN/TURN); not required for MVP (in-process WS relay suffices).
 - `research/` — **not shipped** — `observations/`, `protocol/`, `binaries/` (gitignored), `network/`, `behavior/`, `notes/` + `GUARDRAILS.md`. Keep `research/binaries/.gitkeep`.
 - `docs/` — `ARCHITECTURE.md` (authoritative), `reference-fightcade-install.md` (read-only install notes).
 - `tests/`, `docker/`, `.github/workflows/` — integration tests, compose overlay, CI.
@@ -39,7 +39,7 @@ pnpm format && pnpm lint        # prettier + eslint
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p openfight-server -- --migrate   # sqlx migrate run
+cargo run -p opencade-server -- --migrate   # sqlx migrate run
 cargo run -p game-defs-import -- D:/Fightcade/emulator/fbneo_roms.json --out packages/game-definitions/games
 
 # infra
@@ -48,13 +48,13 @@ curl http://localhost:8080/health && curl http://localhost:8080/ready
 psql $DATABASE_URL -f apps/server/migrations/001_users.sql
 
 # diagnostics
-pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/openfight.log
+pnpm tauri dev -- --log opencade  # client logs to %APPDATA%/OpenCade/logs/opencade.log
 ```
 
 ## Code Conventions & Common Patterns
 
 - **Formatting:** `cargo fmt` (rustfmt edition 2021, `max_width=100`) and `pnpm format` (Prettier) — CI blocks on `fmt --check`. `clippy -D warnings` required.
-- **Naming:** crates `openfight-*`, TS packages `@openfight/*`, adapters `fbneo` (kebab), TOML ids `sfiii3`, `kof98` (snake, lowercase). DB tables `snake_case`; API/WS JSON also `snake_case` via `#[serde(rename_all = "snake_case")]` for payload keys and `#[serde(rename = "type")]` for the `type` field (see `Envelope` in `apps/server/src/main.rs:17-24` and `packages/protocol`).
+- **Naming:** crates `opencade-*`, TS packages `@opencade/*`, adapters `fbneo` (kebab), TOML ids `sfiii3`, `kof98` (snake, lowercase). DB tables `snake_case`; API/WS JSON also `snake_case` via `#[serde(rename_all = "snake_case")]` for payload keys and `#[serde(rename = "type")]` for the `type` field (see `Envelope` in `apps/server/src/main.rs:17-24` and `packages/protocol`).
 - **Error handling:** `thiserror` + `anyhow` in Rust, never `unwrap()` in server paths; TS `Result<T,E>`-style returns from `src/lib/api.ts`. Structured `tracing` logs (JSON in prod, pretty in dev) — never log tokens, passwords, or ROM paths with PII.
 - **Async:** Tokio everywhere server-side; Tauri commands `async` with `#[tauri::command(async)]`; WS client uses `tokio-tungstenite` + backoff. No blocking in async context.
 - **Protocol:** every WS message `Envelope {type:"signaling.offer", version:"1.0", request_id, timestamp, payload:{room_id,candidate}}` with `version` as **string** `"1.0"` canonical (compat `"1"` accepted) matching `pub const PROTOCOL_VERSION: &str = "1.0"` and `is_supported_version` in `packages/protocol/src/lib.rs:14-21` / `pub version: String` in `apps/server/src/main.rs:20`. Server validates `version` then `type`, returns `{code:"unknown_type"}` for unknown `type`, `{code:"version_unsupported"}` for unsupported version; forward-compatible bump via `"2.0"` handler.
@@ -83,14 +83,14 @@ pnpm tauri dev -- --log openfight  # client logs to %APPDATA%/OpenFight/logs/ope
 - **Runtime:** Rust 1.78+ (MSRV), Tauri 1.x (WebView2 on Windows), Node 20+ with **pnpm 9** (not npm/yarn), Postgres 16-alpine (sqlx compile-time checked). No Bun. No Electron.
 - **Package manager:** `pnpm` at root (`pnpm-workspace.yaml` covers `apps/*`, `packages/*`, `adapters/*`, `services/*`) — `pnpm install` only, commit `pnpm-lock.yaml`.
 - **Build:** `cargo build --workspace`, `pnpm -C apps/client build`, `tauri build` (MSI/NSIS on Windows). Docker multi-stage `rust:1.78 → debian:bookworm-slim`.
-- **Env:** `DATABASE_URL=postgres://openfight:openfight@db:5432/openfight`, `SESSION_SECRET` (32B CSPRNG), `RUST_LOG=info,openfight_server=debug`. Never commit `.env` (see `.env.example`).
+- **Env:** `DATABASE_URL=postgres://opencade:opencade@db:5432/opencade`, `SESSION_SECRET` (32B CSPRNG), `RUST_LOG=info,opencade_server=debug`. Never commit `.env` (see `.env.example`).
 - **OS:** Windows 10/11 primary (Tauri), Linux/macOS viable via same stack — no `.lnk` shortcuts, use `tauri::path`.
 - **Tooling constraints:** keep `disableDevTools` off in dev, on in prod via Tauri `tauri.conf.json > build > devPath`. No `shell` permission in `tauri.conf.json`; use `process` allowlist.
 
 ## Testing & QA
 
 - **No ROMs/binaries in tests:** use fixtures under `tests/fixtures/` (tiny TOML, mock adapter). `research/binaries/` is gitignored.
-- **Unit:** `cargo test -p openfight-protocol -- envelope serde`, `-p emulator-sdk -- arg escaping`, `-p game-definitions -- loader/scan`, `pnpm test` for `packages/shared` (Vitest).
+- **Unit:** `cargo test -p opencade-protocol -- envelope serde`, `-p emulator-sdk -- arg escaping`, `-p game-definitions -- loader/scan`, `pnpm test` for `packages/shared` (Vitest).
 - **Integration:** `cargo test --workspace -- --ignored` (spins `Axum` + `postgres` via `docker compose up -d db`, registers two users, WS presence → `challenge.send/accept` → `signaling.offer/answer/candidate` → `room PLAYING` → disconnect).
 - ** networking:** LAN, same NAT, different NAT, symmetric NAT (expect relay fallback), packet loss/latency injection via `tc`; `diagnostics:network_test` command asserts `nat:cone|symmetric`, `rtt_ms`, `relay_reachable`.
 - **Manual QA loop (MVP):** `docker compose up -d` → `curl /health` → `pnpm tauri dev` → login → `Games` shows owned `sfiii3` (needs `sfiii3.zip` + `neogeo.zip` under `emulator/fbneo/ROMs/` scanned locally) → challenge peer in `Lobbies/:gameId` → accept → `CONNECTING` (P2P or relay) → emulator spawns `fcadefbneo.exe` with escaped `C:\path with spaces\sfiii3.zip` → play → `FINISHED` → export logs `Settings → Export Logs`.

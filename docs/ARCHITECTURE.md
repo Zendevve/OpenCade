@@ -1,8 +1,8 @@
-# OpenFight — Architecture
+# OpenCade — Architecture
 
 > **Status:** Definitive. This document is the single source of truth for repository layout, system boundaries, and implementation contracts. Anything not described here is not decided.
 >
-> **Monorepo root:** `D:/OpenFight`  
+> **Monorepo root:** `D:/OpenCade`  
 > **Reference binary (read-only):** `D:/Fightcade` — proprietary installed distribution, `VERSION 2.1.45`. Never copied, never linked, never vendored. See §2 and §17.
 
 ---
@@ -34,7 +34,7 @@
 ## 1. Principles
 
 1. **Correctness first, then maintainability 6 months out.** Boring technology wins.
-2. **No proprietary copy.** `D:/Fightcade` is observation only. Every line of OpenFight is original or permissively licensed (Apache-2.0 dependency hygiene).
+2. **No proprietary copy.** `D:/Fightcade` is observation only. Every line of OpenCade is original or permissively licensed (Apache-2.0 dependency hygiene).
 3. **Single monolith server in MVP.** One Axum process, one Postgres, one deployable. No Redis, no microservices, no premature queue.
 4. **Client is native, not a web wrapper.** Tauri replaces Electron/Nativefier. No `shell` exposure, least-privilege permissions, Rust owns process/fs/logging.
 5. **Declarative over imperative.** Game support is data (TOML/JSON), not code branches.
@@ -45,7 +45,7 @@
 
 ## 2. Reference System — D:/Fightcade (Read-Only)
 
-`D:/Fightcade` is the installed Fightcade 2 binary distribution (`VERSION.txt` → `2.1.45`). Per PRD §32–33 it is **read-only reference**. Findings below are observations only; no file is copied into `D:/OpenFight`.
+`D:/Fightcade` is the installed Fightcade 2 binary distribution (`VERSION.txt` → `2.1.45`). Per PRD §32–33 it is **read-only reference**. Findings below are observations only; no file is copied into `D:/OpenCade`.
 
 ### 2.1 Electron / Nativefier wrapper — `fc2-electron/`
 
@@ -96,7 +96,7 @@ fbneo-training-mode/
   resources/{info,replay,stick}/
 ```
 
-Module contract (the interface OpenFight's adapter may reference as a pattern, not copy):
+Module contract (the interface OpenCade's adapter may reference as a pattern, not copy):
 
 ```lua
 -- memory helpers exposed by FBNeo Lua
@@ -150,7 +150,7 @@ flowchart TB
         OBS[Observability placeholder<br/>tracing / metrics / logs]
     end
 
-    subgraph Relay["services/relay — openfight-relay"]
+    subgraph Relay["services/relay — opencade-relay"]
         RELAY_WS[WS relay placeholder<br/>TURN-like fallback]
     end
 
@@ -194,7 +194,7 @@ flowchart TB
 ## 4. Repository Tree
 
 ```
-D:/OpenFight/
+D:/OpenCade/
 ├── apps/
 │   ├── client/                  # Tauri + React + TypeScript
 │   │   ├── src/
@@ -263,7 +263,7 @@ D:/OpenFight/
 │       │   └── launch.rs
 │       └── Cargo.toml / package.json
 ├── services/
-│   └── relay/                   # openfight-relay — placeholder (WS relay / future TURN)
+│   └── relay/                   # opencade-relay — placeholder (WS relay / future TURN)
 │       ├── src/main.rs
 │       ├── Cargo.toml
 │       └── Dockerfile
@@ -287,7 +287,7 @@ D:/OpenFight/
     package.json
 ```
 
-All paths are relative to `D:/OpenFight`. No file from `D:/Fightcade` appears in this tree.
+All paths are relative to `D:/OpenCade`. No file from `D:/Fightcade` appears in this tree.
 
 ---
 
@@ -297,13 +297,13 @@ All paths are relative to `D:/OpenFight`. No file from `D:/Fightcade` appears in
 
 - **B (modular monorepo)** provides the package boundaries (`protocol`, `emulator-sdk`, `game-definitions`, `networking`, `shared`, `adapters/fbneo`) and the `apps/*` / `services/*` split. This is the dominant structure.
 - **Graft A (single Axum monolith, Postgres-only, WS in-process relay)** constrains the server: one deployable (`apps/server`), one database (PostgreSQL), no Redis in MVP, WebSocket relay lives inside the Axum process as the fallback path. Keeps ops trivial and eliminates distributed-state bugs early.
-- **Graft C (Docker Compose, observability placeholder, openfight-relay placeholder)** adds the deployment and operational shell: `docker/docker-compose.yml` with `openfight-server + postgres + openfight-relay (placeholder)`, structured logging / tracing / metrics placeholders, and a relay service stub that can be promoted to a real TURN server without re-architecture.
+- **Graft C (Docker Compose, observability placeholder, opencade-relay placeholder)** adds the deployment and operational shell: `docker-compose.yml` at root with `db + opencade-server` active and `opencade-relay` commented as placeholder, structured logging / tracing / metrics placeholders, and a relay service stub that can be promoted to a real TURN server without re-architecture.
 
 Consequences:
 
-- MVP has **three containers**: `openfight-server`, `postgres`, `openfight-relay` (the last is a no-op/echo placeholder behind the same `/ws` fallback; peers prefer direct UDP).
+- MVP has **two active containers**: `db` (`postgres:16-alpine`) + `opencade-server` on `8080`; `opencade-relay` is present as a commented placeholder behind the same `/ws` fallback (peers prefer direct UDP) until M6.
 - No Redis, no separate signaling service, no message queue in MVP. If load demands it, the WS relay and presence can be extracted _behind the same protocol_ — envelope versioning guarantees compatibility.
-- `services/relay` is a real crate/binary from day one so `docker-compose.yml` and CI already wire it; its implementation is `TODO(relay): WS echo fallback` until M5.
+- `services/relay` is a real crate/binary from day one so `docker-compose.yml` and CI can wire it; its implementation is `TODO(relay): WS echo fallback` until M5/M6 (currently commented in compose).
 
 ---
 
@@ -313,15 +313,15 @@ Tauri replaces the Electron 8 + Nativefier 8.0.7 wrapper entirely. The web conte
 
 ### 6.1 Tauri responsibilities (Rust layer — `src-tauri/src/`)
 
-| Concern            | Implementation                                                                                                                                                                                           |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Process launch** | `std::process::Command` with explicit `arg` list, no `shell`, no string interpolation. `Command::new(path).args(sanitizedArgs)` only. Path is validated against an allow-list (adapter-provided binary). |
-| **Filesystem**     | Scoped FS via `tauri-plugin-fs` with capability grants. Allowed: read `emulator/<core>/ROMs/**`, read/write `config/**`, `savestates/**`, logs. Denied: everything else by default.                      |
-| **Logging**        | `tauri-plugin-log` → rotating file in OS log dir + console. Structured fields: `request_id`, `room_id`, `adapter`.                                                                                       |
-| **Permissions**    | `tauri.conf.json` + `capabilities/` — **no `shell` plugin**. No `http` to arbitrary hosts — only `https://<configured-server>/api/v1` and `wss://<configured-server>/ws`.                                |
-| **Diagnostics**    | Commands: `diagnose_roms`, `diagnose_network`, `diagnose_adapter`, `get_logs`. Each returns a serializable report (see §6.4).                                                                            |
-| **Updates**        | `tauri-plugin-updater` (placeholder, disabled in MVP dev).                                                                                                                                               |
-| **Security**       | CSP in `tauri.conf.json`, `dangerousUseHttpScheme` off, `withGlobalTauri` off in production.                                                                                                             |
+| Concern            | Implementation                                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Process launch** | `std::process::Command` with explicit `arg` list, no `shell`, no string interpolation. `Command::new(path).args(sanitizedArgs)` only. Path is validated against an allow-list (adapter-provided binary).        |
+| **Filesystem**     | Scoped FS via `tauri-plugin-fs` with capability grants. Allowed: read `emulator/<core>/ROMs/**`, read/write `config/**`, `savestates/**`, logs. Denied: everything else by default.                             |
+| **Logging**        | `tauri-plugin-log` → rotating file in OS log dir + console. Structured fields: `request_id`, `room_id`, `adapter`.                                                                                              |
+| **Permissions**    | `tauri.conf.json` + `capabilities/` — minimal `shell` (only `shell.open` true, `shell.all` false). No `http` to arbitrary hosts — only `https://<configured-server>/api/v1` and `wss://<configured-server>/ws`. |
+| **Diagnostics**    | Commands: `diagnose_roms`, `diagnose_network`, `diagnose_adapter`, `get_logs`. Each returns a serializable report (see §6.4).                                                                                   |
+| **Updates**        | `tauri-plugin-updater` (placeholder, disabled in MVP dev).                                                                                                                                                      |
+| **Security**       | CSP in `tauri.conf.json`, `dangerousUseHttpScheme` off, `withGlobalTauri` off in production.                                                                                                                    |
 
 > **No shell, no injection.** Every emulator launch goes through `packages/emulator-sdk` `launch()` which escapes/validates before reaching `Command`. See §11.
 
@@ -407,7 +407,7 @@ Every frame is a **versioned envelope** (see §8):
 ```json
 {
   "type": "presence.update",
-  "version": 1,
+  "version": "1.0",
   "request_id": "01H...",
   "timestamp": "2026-08-22T00:00:00.000Z",
   "payload": { "status": "online", "gameId": "kof98" }
@@ -633,8 +633,8 @@ All three types carry `envelope.version = 1` and are validated: `roomId` must ex
 
 1. **Direct UDP** — try peer's advertised `host:port` from signaling.
 2. **Hole punching** — simultaneous `UDP` sends to each peer's reflexive address; 3 attempts, 500 ms apart.
-3. **STUN** — query configured STUN server (`stun:stun.openfight.local:3478` in dev, public STUN in prod) to learn reflexive address; re-attempt.
-4. **WS relay fallback** — keep `/ws` open; server forwards frames in-process. In MVP this _is_ the relay. `services/relay` (openfight-relay) is a placeholder WS echo that will become a real TURN relay post-MVP without protocol change.
+3. **STUN** — query configured STUN server (`stun:stun.opencade.local:3478` in dev, public STUN in prod) to learn reflexive address; re-attempt.
+4. **WS relay fallback** — keep `/ws` open; server forwards frames in-process. In MVP this _is_ the relay. `services/relay` (opencade-relay) is a placeholder WS echo that will become a real TURN relay post-MVP without protocol change.
 
 The client reports `natType` (`open | cone | symmetric | blocked`) from the STUN binding response. UI shows `Network Test` with this value.
 
@@ -690,7 +690,7 @@ export interface EmulatorAdapter {
 }
 ```
 
-`detect()` scans well-known locations (`emulator/fbneo/fcadefbneo.exe` on Windows, `~/.openfight/emulators/fbneo/` on all platforms, plus user-configured path in Settings). `getVersion()` parses the binary's version string or a sidecar `version.txt`.
+`detect()` scans well-known locations (`emulator/fbneo/fcadefbneo.exe` on Windows, `~/.opencade/emulators/fbneo/` on all platforms, plus user-configured path in Settings). `getVersion()` parses the binary's version string or a sidecar `version.txt`.
 
 ### 11.2 Safe launch
 
@@ -823,65 +823,60 @@ Placeholder in MVP, real wiring without re-architecture.
 
 ---
 
-## 16. Deployment — docker/
+## 16. Deployment — docker-compose.yml
 
-### 16.1 docker-compose.yml
+### 16.1 docker-compose.yml (root)
+
+Canonical compose is `docker-compose.yml` at repo root (mirrored under `docker/` if present). Active services: `db` (`postgres:16-alpine`) + `opencade-server` on `8080`. `opencade-relay` is commented as placeholder until `services/relay` implements the TURN relay (M6).
 
 ```yaml
-# docker/docker-compose.yml
+# docker-compose.yml — active
+name: opencade
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: openfight
-      POSTGRES_USER: openfight
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_USER: opencade
+      POSTGRES_PASSWORD: opencade
+      POSTGRES_DB: opencade
+    ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports: ["5432:5432"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openfight"]
+      test: ["CMD-SHELL", "pg_isready -U opencade -d opencade"]
       interval: 5s
       retries: 10
 
-  openfight-server:
+  opencade-server:
     build:
-      context: ..
-      dockerfile: apps/server/Dockerfile
+      context: .
+      dockerfile: ./apps/server/Dockerfile
     environment:
-      DATABASE_URL: postgres://openfight:${POSTGRES_PASSWORD}@postgres:5432/openfight
-      RUST_LOG: ${RUST_LOG:-info}
-      BIND_ADDR: "0.0.0.0:3000"
-    ports: ["3000:3000"]
+      DATABASE_URL: postgres://opencade:opencade@db:5432/opencade
+      RUST_LOG: info
+      PORT: 8080
+    ports: ["8080:8080"]
     depends_on:
-      postgres: { condition: service_healthy }
+      db: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
-      interval: 5s
-      retries: 10
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
 
-  openfight-relay:
-    build:
-      context: ..
-      dockerfile: services/relay/Dockerfile
-    environment:
-      RUST_LOG: ${RUST_LOG:-info}
-      BIND_ADDR: "0.0.0.0:3478"
-      SERVER_URL: http://openfight-server:3000
-    ports: ["3478:3478", "3478:3478/udp"]
-    depends_on: [openfight-server]
-    # MVP: placeholder — logs and echoes WS relay fallback; no TURN yet
-    restart: unless-stopped
+  # opencade-relay: TURN/relay placeholder for future M6.
+  # Uncomment when services/relay implements the relay binary.
+  # relay:
+  #   image: opencade-relay:local
+  #   ports: ["3478:3478", "3478:3478/udp"]
 
 volumes:
   pgdata:
 ```
 
+Archival example with explicit relay (when enabled) listens on `3478`/`3478/udp` and proxies `SERVER_URL: http://opencade-server:8080`; until then in-process WS relay in `apps/server` is the fallback (`services/relay` placeholder, promoted to TURN later).
+
 ### 16.2 Dockerfiles
 
 - `apps/server/Dockerfile` — `rust:1.78-slim` builder → `debian:bookworm-slim` runtime, `sqlx migrate run` on start.
-- `services/relay/Dockerfile` — same pattern, binary `openfight-relay`.
+- `services/relay/Dockerfile` — same pattern, binary `opencade-relay`.
 
 No `docker-compose.override.yml` in repo; devs create it locally if needed.
 
@@ -891,7 +886,7 @@ No `docker-compose.override.yml` in repo; devs create it locally if needed.
 
 | Phase  | Name                    | Exit Criteria                                                                                                                                                                                                                                                                                                                                                                            |
 | ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **M0** | Bootstrap               | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `openfight-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts.                                                                                                                                                                             |
+| **M0** | Bootstrap               | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `opencade-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts.                                                                                                                                                                             |
 | **M1** | Protocol & DB           | `packages/protocol` envelope round-trips Rust↔TS, migrations create all tables in §9, seed from `game-definitions` inserts ≥1 game, `cargo test` + `pnpm test` pass.                                                                                                                                                                                                                     |
 | **M2** | Auth & REST             | `POST /auth/register`, `/login`, `/logout`, `GET /auth/me` work with Argon2id + opaque sessions, `GET /games`, `/servers`, `/lobbies` return seeded data, auth middleware rejects unauthenticated calls with `401`, rate limiting enforced.                                                                                                                                              |
 | **M3** | Client shell            | Tauri app launches, React Router renders all routes in §6.2 with mocked data, `tauri.conf.json` has no `shell` permission, `diagnose_*` commands return stub reports, `pnpm tauri dev` works on Windows.                                                                                                                                                                                 |
@@ -956,7 +951,7 @@ research/
 - **Errors**: Rust `thiserror` + `anyhow` at boundaries; TS `Result<T, E>` via `neverthrow` or equivalent. Never `unwrap()` on user input.
 - **Testing**: `cargo test` (unit + `sqlx` integration with `#[sqlx::test]`), `vitest` (client), `playwright` for critical flows (login → lobby → challenge) — emulators mocked, no binary in CI.
 - **Config**: `dotenvy` for server, `tauri.conf.json` for client. No hardcoded URLs; `VITE_SERVER_URL` / `SERVER_URL` env.
-- **Paths**: Windows dev uses `D:/OpenFight`; code uses `PathBuf` / `path.join` — never string-concatenated separators.
+- **Paths**: Windows dev uses `D:/OpenCade`; code uses `PathBuf` / `path.join` — never string-concatenated separators.
 
 ---
 

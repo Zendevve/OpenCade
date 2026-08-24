@@ -1,4 +1,4 @@
-import type { RoomPayload } from "@openfight/protocol";
+import type { RoomPayload } from "@opencade/protocol";
 
 export type MatchReport = {
   schema_version: 1;
@@ -26,7 +26,7 @@ export function downloadMatchReport(room: RoomPayload): void {
   );
   const link = document.createElement("a");
   link.href = url;
-  link.download = `openfight-match-${room.id.slice(0, 8)}.json`;
+  link.download = `opencade-match-${room.id.slice(0, 8)}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }

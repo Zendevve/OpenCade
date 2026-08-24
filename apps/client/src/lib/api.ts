@@ -1,4 +1,4 @@
-import type { Envelope, RoomPayload } from "@openfight/protocol";
+import type { Envelope, RoomPayload } from "@opencade/protocol";
 
 export type User = { id: string; username: string; email?: string | null };
 export type AuthPayload = { user: User; token: string; expires_at: string };
@@ -47,7 +47,7 @@ async function request<T>(path: string, token?: string | null, init?: RequestIni
   try {
     response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError(0, "network_unavailable", "OpenFight server is unreachable");
+    throw new ApiError(0, "network_unavailable", "OpenCade server is unreachable");
   }
   const decoded: unknown = await response.json().catch(() => null);
   const envelope = isEnvelope(decoded) ? decoded : null;

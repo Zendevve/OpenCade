@@ -1,4 +1,4 @@
-//! OpenFight emulator adapter SDK — pluggable backends (FBNeo, Flycast, etc.)
+//! OpenCade emulator adapter SDK — pluggable backends (FBNeo, Flycast, etc.)
 
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn safe_launch_preserves_paths_with_spaces_and_rejects_escape() {
         let fixture = std::env::temp_dir().join(format!(
-            "openfight sdk fixture {} {}",
+            "opencade sdk fixture {} {}",
             std::process::id(),
             std::thread::current().name().unwrap_or("test")
         ));

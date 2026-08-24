@@ -9,7 +9,7 @@ type SessionState = {
   clearSession: () => void;
 };
 
-const TOKEN_KEY = "openfight.session_token";
+const TOKEN_KEY = "opencade.session_token";
 
 function storedToken(): string | null {
   try {

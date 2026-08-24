@@ -8,7 +8,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use axum::extract::ws::Message;
-use openfight_protocol::Envelope;
+use opencade_protocol::Envelope;
 use serde_json::Value;
 
 use crate::config::Config;

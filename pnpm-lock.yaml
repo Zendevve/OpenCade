@@ -14,7 +14,7 @@ importers:
 
   apps/client:
     dependencies:
-      '@openfight/protocol':
+      '@opencade/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       '@tanstack/react-query':

@@ -9,7 +9,7 @@ const queryClient = new QueryClient({
 });
 
 const root = document.getElementById("root");
-if (!root) throw new Error("OpenFight root element is missing");
+if (!root) throw new Error("OpenCade root element is missing");
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>

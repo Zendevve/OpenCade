@@ -1,5 +1,5 @@
 use axum::{extract::Path, extract::State, http::StatusCode, Json};
-use openfight_protocol::Envelope;
+use opencade_protocol::Envelope;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row, Transaction};
@@ -206,7 +206,7 @@ pub async fn accept_challenge(
         .execute(&mut *transaction)
         .await?;
     let next = transition(
-        openfight_protocol::RoomState::Challenging,
+        opencade_protocol::RoomState::Challenging,
         RoomEvent::Accept,
     )
     .map_err(|error| AppError::Conflict(error.to_string()))?;

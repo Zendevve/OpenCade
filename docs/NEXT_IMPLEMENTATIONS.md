@@ -1,4 +1,4 @@
-# OpenFight Next Implementations
+# OpenCade Next Implementations
 
 > Reviewed: 2026-08-23
 > Scope: `README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, clean-room guardrails,
@@ -110,7 +110,7 @@ working lobby and launcher without producing netplay.
 
 ### Pricing test
 
-Not applicable. OpenFight has no evidenced monetization or active usage baseline. The useful test is
+Not applicable. OpenCade has no evidenced monetization or active usage baseline. The useful test is
 adoption: can 20 community testers complete 10 cross-machine matches with at least 80% successful
 connection-and-launch attempts? Monetization should be reconsidered only after that signal exists.
 
@@ -125,7 +125,7 @@ connection-and-launch attempts? Monetization should be reconsidered only after t
 - **Competition:** proprietary incumbent behavior creates room for transparency and self-hosting;
   competitor timing is not assessed here and should not be invented from code.
 - **Complementors:** external emulators, public rollback literature, Docker, and community-operated
-  servers reduce how much OpenFight must own.
+  servers reduce how much OpenCade must own.
 - **Constraint:** emulator integration is the underpriced force. Matchmaking is conventional;
   producing a legal, maintainable netplay seam is the hard differentiator.
 
@@ -147,7 +147,7 @@ contract-tested match kernel is more valuable than broad but disconnected featur
 
 ### Jobs: category definition
 
-“OpenFight is the self-hostable, clean-room arcade netplay stack whose entire match lifecycle is
+“OpenCade is the self-hostable, clean-room arcade netplay stack whose entire match lifecycle is
 executable and auditable.”
 
 This makes feature-count comparison less important. To make the statement true, say **no** to route
@@ -318,7 +318,7 @@ observed alpha failure rates.
 
 | Cause of failure                                                                      | Mitigation now                                                                                    |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| FBNeo can launch a ROM but cannot consume OpenFight's session/input transport         | Gate 0 before further product work; use a mock adapter and require a documented real-adapter path |
+| FBNeo can launch a ROM but cannot consume OpenCade's session/input transport         | Gate 0 before further product work; use a mock adapter and require a documented real-adapter path |
 | Stub success responses hide schema and state-machine failures                         | Remove fallbacks; test the composed router against migrated Postgres                              |
 | WebSocket signaling is mistaken for a suitable rollback data plane                    | Separate control/data contracts and measure the data plane independently                          |
 | Protocol copies drift across Rust, generated TS, and handwritten TS                   | One schema/type source plus a generation-diff CI gate                                             |

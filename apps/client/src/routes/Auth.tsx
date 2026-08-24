@@ -98,7 +98,7 @@ export default function Auth({
           </p>
         )}
         <button className="primary" disabled={busy}>
-          {busy ? "Working…" : mode === "login" ? "Enter OpenFight" : "Create account"}
+          {busy ? "Working…" : mode === "login" ? "Enter OpenCade" : "Create account"}
         </button>
       </form>
     </main>

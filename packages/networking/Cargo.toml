@@ -1,10 +1,10 @@
 [package]
-name = "openfight-networking"
+name = "opencade-networking"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight networking — signaling, NAT traversal, relay (placeholder for M1)"
+description = "OpenCade networking — signaling, NAT traversal, relay (placeholder for M1)"
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [dependencies]
@@ -14,4 +14,4 @@ thiserror = "1"
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 
 [dev-dependencies]
-openfight-emulator-sdk = { path = "../emulator-sdk" }
+opencade-emulator-sdk = { path = "../emulator-sdk" }

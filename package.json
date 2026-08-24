@@ -1,14 +1,14 @@
 {
-  "name": "openfight",
+  "name": "opencade",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@9.15.9",
-  "description": "OpenFight monorepo root",
+  "description": "OpenCade monorepo root",
   "scripts": {
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "build": "pnpm -r --if-present build",
-    "typecheck": "pnpm --filter @openfight/protocol build && pnpm -r --if-present typecheck",
+    "typecheck": "pnpm --filter @opencade/protocol build && pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
   },
   "devDependencies": {

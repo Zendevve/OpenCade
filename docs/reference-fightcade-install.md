@@ -1,8 +1,8 @@
-# Repository Guidelines
+# Reference — D:/Fightcade Install (Read-Only)
+
+> **Read-only reference.** `D:/Fightcade` (Fightcade 2 v2.1.45) is the installed proprietary distribution described here for observation only. No file from `D:/Fightcade` is copied into `D:/OpenCade`. See `docs/ARCHITECTURE.md §2` and `research/GUARDRAILS.md`.
 
 ## Project Overview
-
-Fightcade 2 (v2.1.45) — online matchmaking + GGPO rollback netplay for retro arcade/console games. This directory is the **installed binary distribution** (Windows), not a source monorepo. Frontend is an Electron/Nativefier wrapper around `https://web.fightcade.com`; matchmaking launches local emulator binaries with synchronized inputs. CHangelog spans client, FcadeFBNeo (0.2.97.44), Flycast Dojo (6.46), and frontend game definitions.
 
 ## Architecture & Data Flow
 

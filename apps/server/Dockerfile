@@ -31,8 +31,8 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
 COPY . .
 
 # Build the server binary.
-RUN cargo build --release --locked -p openfight-server \
-    && ls -lh target/release/openfight-server* 2>/dev/null || ls -lh target/release/
+RUN cargo build --release --locked -p opencade-server \
+    && ls -lh target/release/opencade-server* 2>/dev/null || ls -lh target/release/
 
 # --- runtime ---------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
@@ -41,21 +41,21 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
-RUN useradd -m -u 10001 openfight
+RUN useradd -m -u 10001 opencade
 WORKDIR /app
 
-COPY --from=builder /app/target/release/openfight-server /usr/local/bin/openfight-server
+COPY --from=builder /app/target/release/opencade-server /usr/local/bin/opencade-server
 
 # Migrations / static assets if present
 COPY --from=builder /app/apps/server/migrations ./migrations
 
-USER openfight
+USER opencade
 EXPOSE 8080
 ENV RUST_LOG=info
-ENV DATABASE_URL=postgres://openfight:openfight@db:5432/openfight
-ENV OPENFIGHT_ENV=production
+ENV DATABASE_URL=postgres://opencade:opencade@db:5432/opencade
+ENV OPENCADE_ENV=production
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
   CMD wget -qO- http://localhost:8080/health || exit 1
 
-CMD ["openfight-server"]
+CMD ["opencade-server"]

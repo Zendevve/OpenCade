@@ -6,7 +6,7 @@
 
 ## Context
 
-OpenFight currently specifies matchmaking/signaling and emulator launch as separate subsystems. A
+OpenCade currently specifies matchmaking/signaling and emulator launch as separate subsystems. A
 successful signaling exchange does not itself make an emulator consume peer input, and launching an
 emulator with a ROM path does not make it join a synchronized match. Treating WebSocket signaling as
 the rollback transport would also couple latency-sensitive input delivery to the control plane.
@@ -20,12 +20,12 @@ system must follow `research/GUARDRAILS.md` before it informs an adapter impleme
 
 ## Decision
 
-OpenFight separates three boundaries.
+OpenCade separates three boundaries.
 
 ### Control plane
 
 The Axum server owns authentication, challenges, room membership, room-state transitions, presence,
-and exchange of transport candidates. Control messages use the versioned OpenFight envelope.
+and exchange of transport candidates. Control messages use the versioned OpenCade envelope.
 
 The control plane never interprets game inputs. It may authorize creation of a relay allocation, but
 the allocation belongs to the data plane.
@@ -36,7 +36,7 @@ the allocation belongs to the data plane.
 deterministic in-memory transport used by tests. The next implementation is direct UDP for LAN
 testing. Hole punching, STUN, and relay transports implement the same interface later.
 
-The transport deals in OpenFight input frames, not SDP and not emulator-specific packets. A frame
+The transport deals in OpenCade input frames, not SDP and not emulator-specific packets. A frame
 contains a monotonically increasing frame number, player identity, and opaque input bytes with a
 strict size limit.
 
@@ -64,10 +64,10 @@ to an emulator process.
 An emulator integration is considered netplay-capable only when it can satisfy one of these public,
 documented contracts:
 
-1. consume OpenFight frames through an original sidecar/plugin interface;
+1. consume OpenCade frames through an original sidecar/plugin interface;
 2. accept documented native netplay endpoint arguments; or
 3. expose a permissively licensed public API that an adapter can call without linking incompatible
-   code into OpenFight.
+   code into OpenCade.
 
 Merely launching an emulator is `local_play` capability, not `netplay` capability. The adapter API
 must report capabilities so the UI and server never promise a match mode the adapter cannot provide.

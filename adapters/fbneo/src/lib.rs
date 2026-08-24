@@ -1,4 +1,4 @@
-use openfight_emulator_sdk::{
+use opencade_emulator_sdk::{
     spawn_validated, AdapterCapabilities, AdapterError, DetectedEmulator, EmulatorAdapter,
     StdProcessLauncher, ValidationReport,
 };
@@ -69,7 +69,7 @@ impl EmulatorAdapter for FbneoAdapter {
     }
 
     fn validate(&self, rom_path: &Path) -> Result<ValidationReport, AdapterError> {
-        openfight_emulator_sdk::canonicalize_below(rom_path, &self.rom_root())?;
+        opencade_emulator_sdk::canonicalize_below(rom_path, &self.rom_root())?;
         if rom_path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -131,7 +131,7 @@ mod tests {
 
     fn fixture() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "openfight-fbneo-{}-{}",
+            "opencade-fbneo-{}-{}",
             std::process::id(),
             FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));

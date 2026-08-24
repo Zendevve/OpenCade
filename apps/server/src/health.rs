@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, Json};
-use openfight_protocol::{Envelope, PROTOCOL_VERSION};
+use opencade_protocol::{Envelope, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 
 use crate::state::AppState;

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "OpenFight Game Definition",
+  "title": "OpenCade Game Definition",
   "description": "Declarative per-game TOML converted to JSON schema for validation",
   "type": "object",
   "required": ["schema_version", "id", "name", "emulator"],

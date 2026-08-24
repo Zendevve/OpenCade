@@ -1080,7 +1080,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "openfight-protocol"
+name = "opencade-protocol"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -1090,7 +1090,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "openfight-server"
+name = "opencade-server"
 version = "0.1.0"
 dependencies = [
  "argon2",
@@ -1098,7 +1098,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "jsonwebtoken",
- "openfight-protocol",
+ "opencade-protocol",
  "regex",
  "serde",
  "serde_json",

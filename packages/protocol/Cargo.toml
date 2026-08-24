@@ -1,10 +1,10 @@
 [package]
-name = "openfight-protocol"
+name = "opencade-protocol"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight versioned protocol envelope (shared client/server)"
+description = "OpenCade versioned protocol envelope (shared client/server)"
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 [dependencies]
 serde = { version = "1", features = ["derive"] }

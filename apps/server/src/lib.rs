@@ -128,7 +128,7 @@ mod tests {
     #[tokio::test]
     async fn health_is_available_without_a_database_round_trip() {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://openfight:openfight@localhost/openfight_test")
+            .connect_lazy("postgres://opencade:opencade@localhost/opencade_test")
             .expect("valid test database URL");
         let response = build_app(AppState::new(pool, Config::for_test()))
             .oneshot(
@@ -145,7 +145,7 @@ mod tests {
     #[tokio::test]
     async fn protected_routes_reject_missing_session_before_database_access() {
         let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://openfight:openfight@localhost/openfight_test")
+            .connect_lazy("postgres://opencade:opencade@localhost/opencade_test")
             .expect("valid test database URL");
         let response = build_app(AppState::new(pool, Config::for_test()))
             .oneshot(

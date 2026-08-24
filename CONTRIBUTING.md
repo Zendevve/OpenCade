@@ -1,8 +1,8 @@
-# Contributing to OpenFight
+# Contributing to OpenCade
 
 Thank you for helping build an open, self-hostable alternative for arcade netplay. This document describes how to contribute safely and consistently. By contributing you agree that your contributions will be licensed under the **Apache License 2.0** (see `LICENSE`).
 
-> **Golden rule:** OpenFight is a **clean-room reimplementation**. We study the existing proprietary platform only as a black box, write down what we observe, and then independently design and implement. We never copy, paste, decompile, or redistribute proprietary code, binaries, ROMs, or assets.
+> **Golden rule:** OpenCade is a **clean-room reimplementation**. We study the existing proprietary platform only as a black box, write down what we observe, and then independently design and implement. We never copy, paste, decompile, or redistribute proprietary code, binaries, ROMs, or assets.
 
 ---
 
@@ -65,7 +65,7 @@ Copy-Item .env.example .env
 ## Repository Layout
 
 ```
-openfight/
+opencade/
 ├── apps/
 │   ├── client/            # Tauri + React + TypeScript desktop client
 │   │   └── src-tauri/     # Rust native layer (process/fs/logging)
@@ -80,7 +80,7 @@ openfight/
 │   ├── fbneo/             # FBNeo adapter (first adapter)
 │   └── mame/              # (future)
 ├── services/
-│   └── relay/             # openfight-relay (TURN-like fallback)
+│   └── relay/             # opencade-relay (TURN-like fallback)
 ├── research/              # NOT SHIPPED — observations only (see GUARDRAILS.md)
 ├── docs/
 ├── docker/
@@ -167,7 +167,7 @@ Observation → Documentation → Design → Implementation
 
 2. **Documentation** — Write a short note in `research/notes/` or `research/behavior/` describing the observed behaviour, the evidence, your confidence (Low / Medium / High), and the _implementation implication_ in your own words. Example template is in `research/GUARDRAILS.md`.
 
-3. **Design** — In the PR or a `docs/` ADR, describe the OpenFight design you propose _without referencing proprietary source_. Cite only your observation note and public specs.
+3. **Design** — In the PR or a `docs/` ADR, describe the OpenCade design you propose _without referencing proprietary source_. Cite only your observation note and public specs.
 
 4. **Implementation** — Write original Rust / TypeScript from the design. Do not copy decompiled output, do not paraphrase `lib/main.js`, do not look at `fcade.exe` strings while coding.
 
@@ -183,7 +183,7 @@ The following will be rejected in CI and in review:
 - Decompiled or transcribed proprietary source, including `fc2-electron/resources/app/lib/main.js` and `lib/static/login.js`.
 - Copyrighted ROMs or archives: `*.zip` / `*.7z` / `*.chd` game images, `emulator/*.json` outputs copied as committed TOML without review.
 - Proprietary assets: `assets/*.wav` challenge sounds, icons, or other Fightcade media.
-- Credentials, API keys, tokens, `.env` with secrets, `%APPDATA%/OpenFight/` dumps.
+- Credentials, API keys, tokens, `.env` with secrets, `%APPDATA%/OpenCade/` dumps.
 - `research/binaries/` content.
 
 See `research/GUARDRAILS.md` for the full allow / deny matrix and the local importer workflow for `emulator/*.json` → TOML.
@@ -251,7 +251,7 @@ pnpm test
 
 # If you touched Docker / migrations
 docker compose config --quiet
-cargo test -p openfight-server --test api_integration  # if present
+cargo test -p opencade-server --test api_integration  # if present
 ```
 
 Include in the PR description: which levels you tested and on what OS. For UI changes, attach a screenshot or short clip.
@@ -275,4 +275,4 @@ Draft PRs are welcome for early feedback — mark as `Draft` and note what is st
 
 ---
 
-Thank you for building OpenFight the right way — original code, open protocol, self-hostable infrastructure.
+Thank you for building OpenCade the right way — original code, open protocol, self-hostable infrastructure.

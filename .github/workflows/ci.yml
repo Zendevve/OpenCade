@@ -19,13 +19,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: openfight
-          POSTGRES_PASSWORD: openfight
-          POSTGRES_DB: openfight_test
+          POSTGRES_USER: opencade
+          POSTGRES_PASSWORD: opencade
+          POSTGRES_DB: opencade_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U openfight -d openfight_test"
+          --health-cmd "pg_isready -U opencade -d opencade_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -51,7 +51,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-features --locked
         env:
-          DATABASE_URL: postgres://openfight:openfight@localhost:5432/openfight_test
+          DATABASE_URL: postgres://opencade:opencade@localhost:5432/opencade_test
           SESSION_SECRET: ci-test-secret-at-least-32-bytes-long
 
       - name: Setup pnpm for protocol drift check
@@ -67,7 +67,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate TypeScript protocol bindings
-        run: cargo test -p openfight-protocol --lib export_bindings
+        run: cargo test -p opencade-protocol --lib export_bindings
 
       - name: Normalize generated protocol bindings
         run: pnpm exec prettier --ignore-path /dev/null --write packages/protocol/src/generated

@@ -1670,20 +1670,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "openfight-adapter-fbneo"
+name = "opencade-adapter-fbneo"
 version = "0.1.0"
 dependencies = [
- "openfight-emulator-sdk",
+ "opencade-emulator-sdk",
  "serde",
  "thiserror",
 ]
 
 [[package]]
-name = "openfight-client"
+name = "opencade-client"
 version = "0.1.0"
 dependencies = [
- "openfight-adapter-fbneo",
- "openfight-emulator-sdk",
+ "opencade-adapter-fbneo",
+ "opencade-emulator-sdk",
  "serde",
  "serde_json",
  "tauri",
@@ -1694,7 +1694,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "openfight-emulator-sdk"
+name = "opencade-emulator-sdk"
 version = "0.1.0"
 dependencies = [
  "serde",

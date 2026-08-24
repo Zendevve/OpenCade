@@ -1,11 +1,11 @@
 [package]
-name = "openfight-client"
+name = "opencade-client"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight desktop client (Tauri + Rust backend)"
-authors = ["OpenFight Contributors"]
+description = "OpenCade desktop client (Tauri + Rust backend)"
+authors = ["OpenCade Contributors"]
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [build-dependencies]
@@ -18,8 +18,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-openfight-adapter-fbneo = { path = "../../../adapters/fbneo" }
-openfight-emulator-sdk = { path = "../../../packages/emulator-sdk" }
+opencade-adapter-fbneo = { path = "../../../adapters/fbneo" }
+opencade-emulator-sdk = { path = "../../../packages/emulator-sdk" }
 
 [features]
 default = ["custom-protocol"]

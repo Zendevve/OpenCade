@@ -1,4 +1,4 @@
-import { createEnvelope, parseEnvelope, type Envelope } from "@openfight/protocol";
+import { createEnvelope, parseEnvelope, type Envelope } from "@opencade/protocol";
 
 export type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 export type MessageListener = (message: Envelope<unknown>) => void;
@@ -7,7 +7,7 @@ export function reconnectDelay(attempt: number): number {
   return Math.min(30_000, 500 * 2 ** Math.max(0, attempt));
 }
 
-export class OpenFightSocket {
+export class OpenCadeSocket {
   private socket: WebSocket | null = null;
   private attempt = 0;
   private stopped = false;
@@ -59,7 +59,7 @@ export class OpenFightSocket {
   private open(state: ConnectionState): void {
     this.onState(state);
     const url = new URL("/ws", this.baseUrl.replace(/^http/, "ws"));
-    this.socket = new WebSocket(url, ["openfight.v1", `openfight.auth.${this.token}`]);
+    this.socket = new WebSocket(url, ["opencade.v1", `opencade.auth.${this.token}`]);
     this.socket.onopen = () => {
       this.attempt = 0;
       this.onState("open");

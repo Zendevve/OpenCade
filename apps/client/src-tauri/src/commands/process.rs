@@ -1,5 +1,5 @@
-use openfight_adapter_fbneo::FbneoAdapter;
-use openfight_emulator_sdk::EmulatorAdapter;
+use opencade_adapter_fbneo::FbneoAdapter;
+use opencade_emulator_sdk::EmulatorAdapter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;

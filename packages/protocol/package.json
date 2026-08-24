@@ -1,7 +1,7 @@
 {
-  "name": "@openfight/protocol",
+  "name": "@opencade/protocol",
   "version": "0.1.0",
-  "description": "OpenFight versioned protocol envelope (TypeScript mirror of Rust crate)",
+  "description": "OpenCade versioned protocol envelope (TypeScript mirror of Rust crate)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

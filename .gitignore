@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# OpenFight — .gitignore
+# OpenCade — .gitignore
 # Keep the repository free of build artefacts, secrets,
 # proprietary binaries, ROMs, and user-local state.
 # ──────────────────────────────────────────────────────────────
@@ -95,12 +95,12 @@ research/protocol/dumps/
 !research/behavior/.gitkeep
 !research/notes/.gitkeep
 
-# ── OpenFight user data (mirrors %APPDATA%/OpenFight/) ──────
+# ── OpenCade user data (mirrors %APPDATA%/OpenCade/) ──────
 # Developers may run the app locally; never commit its state.
-OpenFight/
-%APPDATA%/OpenFight/
+OpenCade/
+%APPDATA%/OpenCade/
 AppData/
-*.openfight/
+*.opencade/
 config.toml
 config.local.toml
 

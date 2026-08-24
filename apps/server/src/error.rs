@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use openfight_protocol::Envelope;
+use opencade_protocol::Envelope;
 use serde_json::{json, Value};
 
 /// Application-level errors.

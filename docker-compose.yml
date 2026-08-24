@@ -1,38 +1,38 @@
-name: openfight
+name: opencade
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: openfight
-      POSTGRES_PASSWORD: openfight
-      POSTGRES_DB: openfight
+      POSTGRES_USER: opencade
+      POSTGRES_PASSWORD: opencade
+      POSTGRES_DB: opencade
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openfight -d openfight"]
+      test: ["CMD-SHELL", "pg_isready -U opencade -d opencade"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
 
-  openfight-server:
+  opencade-server:
     build:
       context: .
       dockerfile: ./apps/server/Dockerfile
-    image: openfight-server:local
+    image: opencade-server:local
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://openfight:openfight@db:5432/openfight
+      DATABASE_URL: postgres://opencade:opencade@db:5432/opencade
       RUST_LOG: info
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
-      OPENFIGHT_ENV: production
+      OPENCADE_ENV: production
       PORT: 8080
     ports:
       - "8080:8080"
@@ -43,13 +43,13 @@ services:
       retries: 5
       start_period: 15s
 
-  # openfight-relay: TURN/relay placeholder for future M3.
+  # opencade-relay: TURN/relay placeholder for future M3.
   # Uncomment when services/relay implements the relay binary.
   # relay:
   #   build:
   #     context: .
   #     dockerfile: ./services/relay/Dockerfile
-  #   image: openfight-relay:local
+  #   image: opencade-relay:local
   #   restart: unless-stopped
   #   depends_on:
   #     db:

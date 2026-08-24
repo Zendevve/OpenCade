@@ -2,7 +2,7 @@
 
 - Date/time (UTC):
 - Tester aliases:
-- OpenFight revision:
+- OpenCade revision:
 - Windows versions:
 - Game id:
 - Emulator adapter/version:

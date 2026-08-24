@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Envelope } from "@openfight/protocol";
+import type { Envelope } from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
 import { ApiError, api } from "./lib/api";
 import { useSessionStore } from "./lib/store";
-import { OpenFightSocket, type ConnectionState } from "./lib/ws";
+import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
 import Games from "./routes/Games";
 import Lobby from "./routes/Lobby";
@@ -36,7 +36,7 @@ export default function App() {
 
   useEffect(() => {
     if (!token) return;
-    const socket = new OpenFightSocket(API_URL, token, setConnection);
+    const socket = new OpenCadeSocket(API_URL, token, setConnection);
     const unsubscribe = socket.subscribe((message: Envelope<unknown>) => {
       if (message.type.startsWith("challenge.")) {
         void queryClient.invalidateQueries({ queryKey: ["challenges"] });
@@ -74,10 +74,10 @@ export default function App() {
         <button
           className="brand"
           onClick={() => setView({ name: "games" })}
-          aria-label="OpenFight games"
+          aria-label="OpenCade games"
         >
           <span className="brand-glyph">OF</span>
-          <span>OpenFight</span>
+          <span>OpenCade</span>
         </button>
         <div className="session-meta">
           <span className={`connection ${connection}`}>{connection}</span>

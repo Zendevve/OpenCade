@@ -1,4 +1,4 @@
-use openfight_protocol::RoomState;
+use opencade_protocol::RoomState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomEvent {

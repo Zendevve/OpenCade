@@ -1,6 +1,6 @@
 # Proof-of-Match LAN test
 
-Use this script only after the automated suite passes. It tests OpenFight's own control plane and
+Use this script only after the automated suite passes. It tests OpenCade's own control plane and
 direct UDP frame transport; it does not claim FBNeo netplay support.
 
 ## Before the session

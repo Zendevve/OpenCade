@@ -50,7 +50,7 @@ pub enum TransportError {
 }
 
 /// Connected UDP transport for LAN proof runs. Authentication and endpoint negotiation remain in
-/// the control plane; this type only carries bounded OpenFight input frames.
+/// the control plane; this type only carries bounded OpenCade input frames.
 pub struct UdpPeer {
     socket: tokio::net::UdpSocket,
 }
@@ -136,7 +136,7 @@ impl InMemoryPeer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openfight_emulator_sdk::{
+    use opencade_emulator_sdk::{
         EmulatorAdapter, MatchDescriptor, MockAdapter, PeerRole, TransportKind,
     };
 

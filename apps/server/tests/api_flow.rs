@@ -4,8 +4,8 @@ use axum::{
     Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use openfight_protocol::Envelope;
-use openfight_server::{build_app, AppState, Config};
+use opencade_protocol::Envelope;
+use opencade_server::{build_app, AppState, Config};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -184,7 +184,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         .expect("host websocket request");
     host_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
-        format!("openfight.v1, openfight.auth.{host_token}")
+        format!("opencade.v1, opencade.auth.{host_token}")
             .parse()
             .expect("host protocol header"),
     );
@@ -193,7 +193,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         .expect("guest websocket request");
     guest_request.headers_mut().insert(
         "Sec-WebSocket-Protocol",
-        format!("openfight.v1, openfight.auth.{guest_token}")
+        format!("opencade.v1, opencade.auth.{guest_token}")
             .parse()
             .expect("guest protocol header"),
     );

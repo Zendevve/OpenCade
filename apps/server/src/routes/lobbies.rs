@@ -1,5 +1,5 @@
 use axum::{extract::Path, extract::State, Json};
-use openfight_protocol::Envelope;
+use opencade_protocol::Envelope;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::Row;

@@ -1,4 +1,4 @@
-use openfight_server::{build_app, shutdown_signal, AppState, Config};
+use opencade_server::{build_app, shutdown_signal, AppState, Config};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing::info;
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!(%addr, "openfight server listening");
+    info!(%addr, "opencade server listening");
 
     axum::serve(listener, build_app(AppState::new(pool, config)))
         .with_graceful_shutdown(shutdown_signal())

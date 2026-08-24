@@ -1,7 +1,7 @@
 {
-  "name": "@openfight/game-definitions",
+  "name": "@opencade/game-definitions",
   "version": "0.1.0",
-  "description": "OpenFight declarative game definitions — TOML catalog + JSON schema + TS loader",
+  "description": "OpenCade declarative game definitions — TOML catalog + JSON schema + TS loader",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

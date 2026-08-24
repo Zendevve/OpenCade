@@ -1,11 +1,11 @@
 [package]
-name = "openfight-server"
+name = "opencade-server"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight server (Axum + PostgreSQL)"
-authors = ["OpenFight Contributors"]
+description = "OpenCade server (Axum + PostgreSQL)"
+authors = ["OpenCade Contributors"]
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [dependencies]
@@ -25,7 +25,7 @@ regex = "1"
 sha2 = "0.10"
 dashmap = "5"
 thiserror = "1"
-openfight-protocol = { path = "../../packages/protocol" }
+opencade-protocol = { path = "../../packages/protocol" }
 
 [dev-dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

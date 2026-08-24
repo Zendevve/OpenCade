@@ -1,5 +1,5 @@
-use openfight_adapter_fbneo::FbneoAdapter;
-use openfight_emulator_sdk::EmulatorAdapter;
+use opencade_adapter_fbneo::FbneoAdapter;
+use opencade_emulator_sdk::EmulatorAdapter;
 use serde::Serialize;
 use std::path::PathBuf;
 

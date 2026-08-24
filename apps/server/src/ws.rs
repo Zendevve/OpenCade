@@ -6,7 +6,7 @@ use axum::{
     http::{header, HeaderMap},
     response::{IntoResponse, Response},
 };
-use openfight_protocol::{is_supported_version, Envelope, PROTOCOL_VERSION};
+use opencade_protocol::{is_supported_version, Envelope, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use sqlx::Row;
 use std::borrow::Cow;
@@ -58,7 +58,7 @@ pub async fn ws_handler(
         .ok_or_else(|| AppError::Unauthorized("websocket authentication required".into()))?;
     let user = authenticate_token(&state, token).await?;
     Ok(upgrade
-        .protocols(["openfight.v1"])
+        .protocols(["opencade.v1"])
         .on_upgrade(move |socket| handle_socket(socket, state, user))
         .into_response())
 }
@@ -70,7 +70,7 @@ fn websocket_token(headers: &HeaderMap) -> Option<&str> {
         .ok()?
         .split(',')
         .map(str::trim)
-        .find_map(|protocol| protocol.strip_prefix("openfight.auth."))
+        .find_map(|protocol| protocol.strip_prefix("opencade.auth."))
         .filter(|token| !token.is_empty())
 }
 
@@ -336,7 +336,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::SEC_WEBSOCKET_PROTOCOL,
-            "openfight.v1, openfight.auth.secret-token"
+            "opencade.v1, opencade.auth.secret-token"
                 .parse()
                 .expect("protocol header"),
         );

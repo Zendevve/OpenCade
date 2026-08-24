@@ -1,4 +1,4 @@
-# OpenFight — Clean-Room Guardrails
+# OpenCade — Clean-Room Guardrails
 
 > **Read this before touching `D:/Fightcade` or writing any protocol, networking, or emulator code.**
 >
@@ -9,7 +9,7 @@
 
 ## 1. Purpose
 
-OpenFight is an **independent, open-source reimplementation** inspired by Fightcade, not a copy of it. The existing Fightcade installation at `D:/Fightcade` is a **research / reference environment** to be treated as a black box. We document what we observe and then write original code from those observations plus public specifications.
+OpenCade is an **independent, open-source reimplementation** inspired by Fightcade, not a copy of it. The existing Fightcade installation at `D:/Fightcade` is a **research / reference environment** to be treated as a black box. We document what we observe and then write original code from those observations plus public specifications.
 
 The guardrails ensure:
 
@@ -78,8 +78,8 @@ High | Medium | Low — and why.
 
 ## Implementation Implication
 
-<What OpenFight needs to do, without copying proprietary details.>
-Example: "OpenFight requires a persistent WebSocket after authentication
+<What OpenCade needs to do, without copying proprietary details.>
+Example: "OpenCade requires a persistent WebSocket after authentication
 for presence/chat/signaling; the exact frame format is TBD via public design."
 
 ## References
@@ -93,7 +93,7 @@ for presence/chat/signaling; the exact frame format is TBD via public design."
 
 ### Step 3 — Design
 
-- In `docs/` (ADR) or the PR description, propose an OpenFight design that cites **only** your observation note and public specs.
+- In `docs/` (ADR) or the PR description, propose an OpenCade design that cites **only** your observation note and public specs.
 - Do not reference proprietary file paths, function names, or decompiled output.
 - Get maintainer feedback before coding non-trivial protocol changes.
 
@@ -120,7 +120,7 @@ The following must **never** appear in any commit, PR, issue attachment, or rele
 | **Electron wrapper source** | `fc2-electron/resources/app/lib/main.js`, `fc2-electron/resources/app/lib/static/login.js`, any `*.asar` unpack                                | Proprietary client source                |
 | **ROMs / disk images**      | `*.zip`, `*.7z`, `*.chd`, `*.iso`, `*.cue`, `*.gdi` containing game data; `emulator/fbneo_roms.json` / `snes9x_roms.json` etc. copied verbatim | Copyrighted game content                 |
 | **Proprietary assets**      | `assets/*.wav` (e.g. `kof98-challenge.wav`, `sfiii3-challenge.wav`), `assets/*.ico`, `assets/icon-128.png` from Fightcade                      | Proprietary media                        |
-| **Credentials / secrets**   | API keys, tokens, passwords, `.env` with real values, `%APPDATA%/OpenFight/` dumps, WebSocket auth headers with secrets                        | Security                                 |
+| **Credentials / secrets**   | API keys, tokens, passwords, `.env` with real values, `%APPDATA%/OpenCade/` dumps, WebSocket auth headers with secrets                        | Security                                 |
 | **Decompiled output**       | Any file derived from decompiling / transcribing `fcade.exe`, `ggponet.dll`, or `lib/main.js`                                                  | Clean-room violation                     |
 | **Research binaries**       | Anything under `research/binaries/`                                                                                                            | Must stay local; directory is gitignored |
 
@@ -133,7 +133,7 @@ ROMs/  roms/  rom/
 *.zip  *.chd  *.iso
 assets/*.wav  *.wav
 fcade*.exe  ggponet.dll  kailleraclient.dll
-%APPDATA%/OpenFight/
+%APPDATA%/OpenCade/
 .env  *.pem  *.key  *.log
 ```
 
@@ -158,7 +158,7 @@ These exact files from `D:/Fightcade` (non-exhaustive):
 
 | Category                                           | Allowed                                                                                                                      | Conditions                                                                                                                                                   |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Original code**                                  | All Rust / TypeScript you write from scratch for OpenFight                                                                   | Must be your original work or properly attributed; licensed Apache-2.0                                                                                       |
+| **Original code**                                  | All Rust / TypeScript you write from scratch for OpenCade                                                                   | Must be your original work or properly attributed; licensed Apache-2.0                                                                                       |
 | **Permissively licensed deps**                     | Crates / npm packages under Apache-2.0, MIT, BSD, ISC                                                                        | Must be declared in `Cargo.toml` / `package.json`; `cargo deny` / `pnpm audit` clean                                                                         |
 | **Public specifications**                          | GGPO rollback concepts (public docs), STUN **RFC 5389**, TURN **RFC 5766**, WebSocket **RFC 6455**, HTTP, etc.               | Cite the RFC / public doc; do not cite proprietary source as authority                                                                                       |
 | **FBNeo training-mode Lua — shape reference only** | The _structure_ of open-source Lua training-mode scripts (e.g. function names, menu shape) as a reference for adapter design | **Shape only, under its own license.** Do not copy implementation. Link to the upstream repo and note the license. Prefer re-deriving from public FBNeo docs |
@@ -191,7 +191,7 @@ When a behaviour can be explained by a public spec, cite the spec as the source 
 Suggested importer invocation (local only):
 
 ```powershell
-# From D:/OpenFight
+# From D:/OpenCade
 cargo run -p game-definitions-importer -- --source "D:/Fightcade/emulator" --out "packages/game-definitions/games" --dry-run
 # Review the diff, then run without --dry-run for approved entries only
 ```
@@ -235,7 +235,7 @@ fi
 
 ## 7. Dependency Hygiene (Apache-2.0)
 
-- All first-party OpenFight code is **Apache-2.0**.
+- All first-party OpenCade code is **Apache-2.0**.
 - New dependencies must be **Apache-2.0, MIT, BSD, or ISC** compatible. Avoid GPL / AGPL / SSPL unless explicitly approved with a compatibility note.
 - Run before each PR that adds a dependency:
 

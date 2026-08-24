@@ -1,10 +1,10 @@
 [package]
-name = "openfight-shared"
+name = "opencade-shared"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight shared utilities (placeholder)"
+description = "OpenCade shared utilities (placeholder)"
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [dependencies]

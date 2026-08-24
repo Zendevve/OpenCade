@@ -23,7 +23,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://openfight:openfight@localhost:5432/openfight".to_string()
+            "postgres://opencade:opencade@localhost:5432/opencade".to_string()
         });
         let session_secret = env::var("SESSION_SECRET")
             .unwrap_or_else(|_| "dev-session-secret-change-me".to_string());
@@ -36,7 +36,7 @@ impl Config {
                 .ok_or(ConfigError::InvalidPort)?,
             Err(_) => 8080,
         };
-        let production = env::var("OPENFIGHT_ENV")
+        let production = env::var("OPENCADE_ENV")
             .map(|value| value.eq_ignore_ascii_case("production"))
             .unwrap_or(false);
         if production && session_secret.len() < 32 {
@@ -66,7 +66,7 @@ impl Config {
 
     pub fn for_test() -> Self {
         Self {
-            database_url: "postgres://openfight:openfight@localhost:5432/openfight_test".into(),
+            database_url: "postgres://opencade:opencade@localhost:5432/opencade_test".into(),
             session_secret: "test-session-secret-with-32-characters".into(),
             rust_log: "info".into(),
             port: 8080,
@@ -86,7 +86,7 @@ mod tests {
         "SESSION_SECRET",
         "RUST_LOG",
         "PORT",
-        "OPENFIGHT_ENV",
+        "OPENCADE_ENV",
         "ALLOWED_ORIGINS",
     ];
 
@@ -120,7 +120,7 @@ mod tests {
     #[serial]
     fn rejects_weak_production_secret() {
         clear_env();
-        env::set_var("OPENFIGHT_ENV", "production");
+        env::set_var("OPENCADE_ENV", "production");
         env::set_var("SESSION_SECRET", "weak");
         assert_eq!(Config::from_env(), Err(ConfigError::WeakProductionSecret));
         clear_env();

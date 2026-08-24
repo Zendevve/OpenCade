@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "openfight-emulator-sdk"
+name = "opencade-emulator-sdk"
 version = "0.1.0"
 dependencies = [
  "serde",

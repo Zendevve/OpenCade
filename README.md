@@ -1,4 +1,4 @@
-# OpenFight
+# OpenCade
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/Y4rDyTScPe)
@@ -7,7 +7,7 @@
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
-OpenFight is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, and LAN UDP transport. FBNeo netplay, NAT traversal, and relay fallback remain explicitly unproven and are not advertised as implemented.
+OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, and LAN UDP transport. FBNeo netplay, NAT traversal, and relay fallback remain explicitly unproven and are not advertised as implemented.
 
 ---
 
@@ -30,10 +30,10 @@ docker compose up -d
 
 # verify
 curl http://localhost:8080/health
-docker compose logs -f openfight-server
+docker compose logs -f opencade-server
 ```
 
-This starts `openfight-server` and PostgreSQL. The server applies committed SQLx migrations before it begins serving. A relay service is intentionally deferred.
+This starts `opencade-server` and PostgreSQL. The server applies committed SQLx migrations before it begins serving. A relay service is intentionally deferred.
 
 ```bash
 # stop
@@ -53,7 +53,7 @@ pnpm install
 pnpm -C apps/client tauri dev
 
 # or run web-only frontend
-pnpm --filter @openfight/client dev
+pnpm --filter @opencade/client dev
 
 # production bundle
 pnpm -C apps/client tauri build
@@ -66,7 +66,7 @@ pnpm -C apps/client tauri build
 ## Repository Structure
 
 ```
-OpenFight/
+OpenCade/
 ├── apps/
 │   ├── client/                 # Tauri + React + TypeScript desktop client
 │   │   ├── src/                # Auth, games, lobby, challenge, and match views
@@ -93,12 +93,13 @@ OpenFight/
 │   ├── behavior/               # UX flows, state transitions
 │   └── notes/                  # Working scratch (not source of truth)
 ├── docs/
-│   ├── ARCHITECTURE.md         # System architecture & subsystem map
-│   ├── adr/                    # Architecture decision records
-│   ├── alpha/                  # LAN test and match-report procedures
-│   └── IMPLEMENTATION_STATUS.md # Verified scope and explicit non-claims
+│   ├── ARCHITECTURE.md                 # System architecture & subsystem map (authoritative)
+│   ├── adr/                            # Architecture decision records
+│   ├── alpha/                          # LAN test and match-report procedures
+│   ├── IMPLEMENTATION_STATUS.md        # Verified scope and explicit non-claims
+│   └── reference-fightcade-install.md  # D:/Fightcade read-only notes (never copied)
 ├── docker/
-│   └── compose.yml             # (or ./docker-compose.yml at root)
+│   └── (compose at root: `docker-compose.yml` — see also `docker/` if present)
 ├── .github/
 │   └── workflows/              # CI (fmt, clippy, test, build)
 └── tests/                      # Cross-package integration tests
@@ -112,7 +113,7 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full system design,
 
 > **D:/Fightcade is a read-only reference. No proprietary binaries, ROMs, or credentials are shipped in this repository.**
 
-OpenFight is built under a strict clean-room process:
+OpenCade is built under a strict clean-room process:
 
 1.  **Observation** — black-box study of behavior and protocols against `D:/Fightcade` as an installed reference. Notes go to `research/` only.
 2.  **Documentation** — observations are distilled into specs (`docs/`, `packages/protocol`).
@@ -123,15 +124,13 @@ OpenFight is built under a strict clean-room process:
 
 **Allowed:** original source under Apache-2.0, documentation, licensed dependencies, public specifications.
 
-The `research/` directory is workspace-only and is **not shipped** in release artifacts or the
-server container image. The process and prohibited material are documented in
-[`research/GUARDRAILS.md`](research/GUARDRAILS.md).
+The `research/` directory is workspace-only and is **not shipped** in any release artifact or the server container image. The process and prohibited material are documented in `research/GUARDRAILS.md` and `docs/ARCHITECTURE.md §18`. CI enforces the guardrail (`research/` is excluded from builds and binary scans block proprietary artifacts).
 
 ---
 
 ## Architecture
 
-High-level: `Client (Tauri)` ↔ `Server (Axum REST + authenticated WebSocket)` for the control plane; direct UDP or the deterministic in-memory transport carries OpenFight input frames; the adapter boundary owns safe local emulator execution.
+High-level: `Client (Tauri)` ↔ `Server (Axum REST + authenticated WebSocket)` for the control plane; direct UDP or the deterministic in-memory transport carries OpenCade input frames; the adapter boundary owns safe local emulator execution.
 
 - **Server:** auth (Argon2id), hashed sessions, games, server hints, lobbies, durable challenges,
   rooms/matches, and authenticated WebSocket signaling (`offer`/`answer`/`candidate`).
@@ -153,14 +152,14 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 | **M3** | Client Shell          | Tauri + React shell, routing (Games/Lobbies/Friends/Servers/Settings), Rust fs/process/logging                                         | Client launches, talks to server, diagnostics panel           |
 | **M4** | Emulator SDK          | Adapter trait (`detect`/`validate`/`getVersion`/`launch`/`stop`/`configure`/`getSupportedGames`), FBNeo adapter, TOML game definitions | Local ROM scan + safe launch for one title                    |
 | **M5** | Matchmaking           | Lobbies, game versions, server browser, matchmaking & room lifecycle                                                                   | Create/join/spectate room e2e with two peers                  |
-| **M6** | NAT & Relay           | STUN, hole-punching, `openfight-relay` TURN fallback, RTT/loss/jitter, Network Test                                                    | Direct + relayed matches measured; relay Docker image         |
+| **M6** | NAT & Relay           | STUN, hole-punching, `opencade-relay` TURN fallback, RTT/loss/jitter, Network Test                                                    | Direct + relayed matches measured; relay Docker image         |
 | **M7** | MVP Release           | Hardening, bans/reports, replay hooks, packaging, docs                                                                                 | Tagged MVP, signed artifacts, no proprietary content          |
 
 ---
 
 ## Community
 
-**Discord — where we discuss OpenFight and everything around it (not only OpenFight):** https://discord.gg/Y4rDyTScPe
+**Discord — where we discuss OpenCade and everything around it (not only OpenCade):** https://discord.gg/Y4rDyTScPe
 
 General dev chat, architecture questions, emulator adapter ideas, and matchmaking talk — all in one place.
 
@@ -172,4 +171,4 @@ Do not open public issues for sensitive vulnerabilities. See `SECURITY.md` for d
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 OpenFight Contributors.
+Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 OpenCade Contributors.

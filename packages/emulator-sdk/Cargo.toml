@@ -1,10 +1,10 @@
 [package]
-name = "openfight-emulator-sdk"
+name = "opencade-emulator-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "OpenFight emulator adapter SDK — trait for pluggable emulator backends"
+description = "OpenCade emulator adapter SDK — trait for pluggable emulator backends"
 license = "Apache-2.0"
-repository = "https://github.com/openfight/openfight"
+repository = "https://github.com/opencade/opencade"
 rust-version = "1.78"
 
 [dependencies]

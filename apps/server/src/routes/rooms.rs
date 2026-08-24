@@ -1,5 +1,5 @@
 use axum::{extract::Path, extract::State, http::StatusCode, Json};
-use openfight_protocol::{Envelope, RoomPayload, RoomState};
+use opencade_protocol::{Envelope, RoomPayload, RoomState};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row, Transaction};
