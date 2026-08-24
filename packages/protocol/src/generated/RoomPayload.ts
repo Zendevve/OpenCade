@@ -4,4 +4,10 @@ import type { RoomState } from "./RoomState";
 /**
  * Room snapshot pushed via `room.state`.
  */
-export type RoomPayload = { id: string, game_id: string, host_id: string, guest_id: string | null, state: RoomState, };
+export type RoomPayload = {
+  id: string;
+  game_id: string;
+  host_id: string;
+  guest_id: string | null;
+  state: RoomState;
+};

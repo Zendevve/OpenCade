@@ -3,24 +3,25 @@
 /**
  * Versioned envelope wrapping every protocol message.
  */
-export type Envelope = { 
-/**
- * Discriminator for message kind, e.g. `lobby.create`, `challenge.offer`.
- */
-type: string, 
-/**
- * Protocol version, e.g. "1.0".
- */
-version: string, 
-/**
- * Unique id for request/response correlation.
- */
-request_id: string, 
-/**
- * RFC 3339 timestamp (UTC).
- */
-timestamp: string, 
-/**
- * Arbitrary payload.
- */
-payload: unknown, };
+export type Envelope = {
+  /**
+   * Discriminator for message kind, e.g. `lobby.create`, `challenge.offer`.
+   */
+  type: string;
+  /**
+   * Protocol version, e.g. "1.0".
+   */
+  version: string;
+  /**
+   * Unique id for request/response correlation.
+   */
+  request_id: string;
+  /**
+   * RFC 3339 timestamp (UTC).
+   */
+  timestamp: string;
+  /**
+   * Arbitrary payload.
+   */
+  payload: unknown;
+};

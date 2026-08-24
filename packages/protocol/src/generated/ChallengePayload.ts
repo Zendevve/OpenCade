@@ -4,4 +4,11 @@ import type { ChallengeState } from "./ChallengeState";
 /**
  * Challenge request between two users for a game/room.
  */
-export type ChallengePayload = { challenge_id: string, room_id: string, game_id: string, challenger_id: string, challenged_id: string, state: ChallengeState, };
+export type ChallengePayload = {
+  challenge_id: string;
+  room_id: string;
+  game_id: string;
+  challenger_id: string;
+  challenged_id: string;
+  state: ChallengeState;
+};
