@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use axum::{Json, extract::Path, extract::State, http::StatusCode};
 use opencade_protocol::{Envelope, RoomPayload, RoomState};
 use serde::Deserialize;
@@ -144,6 +146,7 @@ pub async fn create_room(
         .execute(&mut *transaction)
         .await?;
     transaction.commit().await?;
+    state.metrics.rooms_created.fetch_add(1, Ordering::Relaxed);
 
     let payload = room_payload(&state, room_id, user.id).await?;
     Ok((

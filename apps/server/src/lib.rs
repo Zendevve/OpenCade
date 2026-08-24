@@ -2,6 +2,7 @@ pub mod authn;
 pub mod config;
 pub mod error;
 pub mod health;
+pub mod metrics;
 pub mod room_state;
 pub mod routes;
 pub mod state;
@@ -26,6 +27,7 @@ pub fn build_app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))
         .route("/ready", get(health::ready))
+        .route("/metrics", get(metrics::metrics))
         .route("/api/v1/auth/register", post(routes::auth::register))
         .route("/api/v1/auth/login", post(routes::auth::login))
         .route("/api/v1/auth/logout", post(routes::auth::logout))
