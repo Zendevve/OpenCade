@@ -25,15 +25,21 @@ Updated 2026-08-24.
   reserved socket, with host/reflexive candidate evidence in redacted reports.
 - A fail-closed campaign summarizer that derives the 8-of-10 alpha gate and compatibility matrix
   from paired reports.
-- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, two-process, TypeScript, and MSRV
+- A standalone `opencade-relay` service with health/readiness routes and bounded room forwarding,
+  plus server-provided STUN hints and 30-sample latency metrics.
+- Desktop network diagnostics backed by real RFC 8489 Binding when a STUN endpoint is configured,
+  with typed RTT, loss, jitter, relay-reachability, and STUN-reachability fields.
+- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, NAT, relay, two-process,
+  TypeScript, and MSRV
   checks in CI.
 
 ## Deliberately not claimed
 
 - FBNeo netplay. The adapter reports `BlockedNoPublicInterface`; ADR 0002 records the public-source
   feasibility result and exit criteria.
-- Cone/symmetric NAT behavior classification and relay fallback. One RFC 8489 Binding response is
+- Cone/symmetric NAT behavior classification and proven relay fallback. One RFC 8489 Binding response is
   deliberately reported only as `open`, `mapped`, or `unknown`.
+- TURN allocation and production STUN/TURN deployment.
 - Production packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.

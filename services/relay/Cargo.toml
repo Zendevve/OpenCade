@@ -1,0 +1,20 @@
+[package]
+name = "opencade-relay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+description = "OpenCade relay service (WS TURN-like fallback)"
+repository = "https://github.com/opencade/opencade"
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+dashmap = "6.2.1"
+futures = "0.3.34"
+opencade-protocol = { path = "../../packages/protocol" }
+uuid = { version = "1.25.0", features = ["v4"] }

@@ -43,23 +43,19 @@ services:
       retries: 5
       start_period: 15s
 
-  # opencade-relay: TURN/relay placeholder for future M3.
-  # Uncomment when services/relay implements the relay binary.
-  # relay:
-  #   build:
-  #     context: .
-  #     dockerfile: ./services/relay/Dockerfile
-  #   image: opencade-relay:local
-  #   restart: unless-stopped
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   environment:
-  #     RUST_LOG: info
-  #   ports:
-  #     - "3478:3478"
-  #     - "3478:3478/udp"
-
+  relay:
+    build:
+      context: .
+      dockerfile: ./services/relay/Dockerfile
+    image: opencade-relay:local
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info
+      PORT: 8081
+      RELAY_PORT: 3478
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
 volumes:
   pgdata:
     driver: local

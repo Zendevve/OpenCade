@@ -4,6 +4,8 @@ use std::env;
 pub enum ConfigError {
     #[error("PORT must be an integer between 1 and 65535")]
     InvalidPort,
+    #[error("STUN_PORT must be an integer between 1 and 65535")]
+    InvalidStunPort,
     #[error("SESSION_SECRET must contain at least 32 characters in production")]
     WeakProductionSecret,
     #[error("ALLOWED_ORIGINS must contain at least one origin")]
@@ -18,6 +20,9 @@ pub struct Config {
     pub port: u16,
     pub production: bool,
     pub allowed_origins: Vec<String>,
+    pub stun_host: String,
+    pub stun_port: u16,
+    pub relay_url: Option<String>,
 }
 
 impl Config {
@@ -56,6 +61,19 @@ impl Config {
             return Err(ConfigError::MissingAllowedOrigins);
         }
 
+        let stun_host = lookup("STUN_HOST").unwrap_or_else(|| "stun.opencade.local".to_string());
+        let stun_port = match lookup("STUN_PORT") {
+            Some(value) => value
+                .parse::<u16>()
+                .ok()
+                .filter(|p| *p > 0)
+                .ok_or(ConfigError::InvalidStunPort)?,
+            None => 3478,
+        };
+        let relay_url = lookup("RELAY_URL")
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty());
+
         Ok(Self {
             database_url,
             session_secret,
@@ -63,6 +81,9 @@ impl Config {
             port,
             production,
             allowed_origins,
+            stun_host,
+            stun_port,
+            relay_url,
         })
     }
 
@@ -74,6 +95,9 @@ impl Config {
             port: 8080,
             production: false,
             allowed_origins: vec!["http://localhost:1420".into()],
+            stun_host: "127.0.0.1".into(),
+            stun_port: 3478,
+            relay_url: None,
         }
     }
 }
@@ -83,38 +107,61 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn config(values: &[(&str, &str)]) -> Result<Config, ConfigError> {
+    fn load_config(values: &[(&str, &str)]) -> Result<Config, ConfigError> {
         let values = values.iter().copied().collect::<HashMap<_, _>>();
         Config::from_lookup(|key| values.get(key).map(|value| (*value).to_string()))
     }
 
     #[test]
     fn defaults_are_safe_for_local_development() {
-        let config = config(&[]).expect("development defaults should be valid");
+        let config = load_config(&[]).expect("development defaults should be valid");
         assert_eq!(config.port, 8080);
         assert!(!config.production);
         assert!(config.allowed_origins.contains(&"tauri://localhost".into()));
+        assert_eq!(config.stun_host, "stun.opencade.local");
+        assert_eq!(config.stun_port, 3478);
+        assert_eq!(config.relay_url, None);
+    }
+
+    #[test]
+    fn for_test_uses_deterministic_stun_defaults() {
+        let config = Config::for_test();
+        assert_eq!(config.stun_host, "127.0.0.1");
+        assert_eq!(config.stun_port, 3478);
+        assert_eq!(config.relay_url, None);
     }
 
     #[test]
     fn rejects_invalid_port_instead_of_hiding_configuration_error() {
         assert_eq!(
-            config(&[("PORT", "invalid")]),
+            load_config(&[("PORT", "invalid")]),
             Err(ConfigError::InvalidPort)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_stun_port() {
+        assert_eq!(
+            load_config(&[("STUN_PORT", "not_a_port")]),
+            Err(ConfigError::InvalidStunPort)
+        );
+        assert_eq!(
+            load_config(&[("STUN_PORT", "0")]),
+            Err(ConfigError::InvalidStunPort)
         );
     }
 
     #[test]
     fn rejects_weak_production_secret() {
         assert_eq!(
-            config(&[("OPENCADE_ENV", "production"), ("SESSION_SECRET", "weak")]),
+            load_config(&[("OPENCADE_ENV", "production"), ("SESSION_SECRET", "weak")]),
             Err(ConfigError::WeakProductionSecret)
         );
     }
 
     #[test]
     fn parses_explicit_origins() {
-        let config = config(&[(
+        let config = load_config(&[(
             "ALLOWED_ORIGINS",
             "https://one.example, https://two.example",
         )])
@@ -123,5 +170,31 @@ mod tests {
             config.allowed_origins,
             vec!["https://one.example", "https://two.example"]
         );
+    }
+
+    #[test]
+    fn parses_stun_and_relay_env() {
+        let config = load_config(&[
+            ("STUN_HOST", "stun.example.com"),
+            ("STUN_PORT", "3479"),
+            ("RELAY_URL", "wss://relay.example.com/relay"),
+        ])
+        .expect("stun and relay should parse");
+        assert_eq!(config.stun_host, "stun.example.com");
+        assert_eq!(config.stun_port, 3479);
+        assert_eq!(
+            config.relay_url,
+            Some("wss://relay.example.com/relay".into())
+        );
+    }
+
+    #[test]
+    fn relay_url_absent_when_not_set_or_empty() {
+        let config = load_config(&[]).expect("defaults");
+        assert_eq!(config.relay_url, None);
+        let config = load_config(&[("RELAY_URL", "")]).expect("empty relay should be None");
+        assert_eq!(config.relay_url, None);
+        let config = load_config(&[("RELAY_URL", "   ")]).expect("whitespace relay should be None");
+        assert_eq!(config.relay_url, None);
     }
 }

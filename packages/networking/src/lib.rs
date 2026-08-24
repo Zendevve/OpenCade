@@ -2,11 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
+pub mod latency;
+pub mod nat;
+
 mod probe;
 mod report;
 mod stun;
 mod traversal;
 
+pub use latency::LatencyMetrics;
+pub use nat::{
+    FALLBACK_ORDER, FallbackOrder, NatTraversal, NatType, next_transport, transport_for_nat,
+};
 pub use probe::{MAX_PROBE_FRAMES, MatchProbeConfig, MatchProbeReport, run_match_probe};
 pub use report::{
     ALPHA_MATCH_FRAMES, AlphaCampaignFailure, AlphaCampaignSummary, CompatibilityResult,
@@ -15,7 +22,6 @@ pub use report::{
 };
 pub use stun::{NatMapping, StunObservation, discover_reflexive_address};
 pub use traversal::{HolePunchConfig, HolePunchReport, punch_hole};
-
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
 const MAX_DATAGRAM_BYTES: usize = 2_048;

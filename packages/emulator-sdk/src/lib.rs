@@ -123,6 +123,8 @@ pub enum PeerRole {
 pub enum TransportKind {
     InMemory,
     DirectUdp,
+    HolePunch,
+    Stun,
     Relay,
 }
 
