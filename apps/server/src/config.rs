@@ -22,9 +22,8 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://opencade:opencade@localhost:5432/opencade".to_string()
-        });
+        let database_url = env::var("DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://opencade:opencade@localhost:5432/opencade".to_string());
         let session_secret = env::var("SESSION_SECRET")
             .unwrap_or_else(|_| "dev-session-secret-change-me".to_string());
         let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());

@@ -3,9 +3,4 @@
 /**
  * ICE candidate relayed verbatim between authenticated room members.
  */
-export type SessionCandidatePayload = {
-  room_id: string;
-  candidate: string;
-  sdp_mid: string | null;
-  sdp_mline_index: number | null;
-};
+export type SessionCandidatePayload = { room_id: string, candidate: string, sdp_mid: string | null, sdp_mline_index: number | null, };

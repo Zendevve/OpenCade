@@ -152,7 +152,7 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 | **M3** | Client Shell          | Tauri + React shell, routing (Games/Lobbies/Friends/Servers/Settings), Rust fs/process/logging                                         | Client launches, talks to server, diagnostics panel           |
 | **M4** | Emulator SDK          | Adapter trait (`detect`/`validate`/`getVersion`/`launch`/`stop`/`configure`/`getSupportedGames`), FBNeo adapter, TOML game definitions | Local ROM scan + safe launch for one title                    |
 | **M5** | Matchmaking           | Lobbies, game versions, server browser, matchmaking & room lifecycle                                                                   | Create/join/spectate room e2e with two peers                  |
-| **M6** | NAT & Relay           | STUN, hole-punching, `opencade-relay` TURN fallback, RTT/loss/jitter, Network Test                                                    | Direct + relayed matches measured; relay Docker image         |
+| **M6** | NAT & Relay           | STUN, hole-punching, `opencade-relay` TURN fallback, RTT/loss/jitter, Network Test                                                     | Direct + relayed matches measured; relay Docker image         |
 | **M7** | MVP Release           | Hardening, bans/reports, replay hooks, packaging, docs                                                                                 | Tagged MVP, signed artifacts, no proprietary content          |
 
 ---

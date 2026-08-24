@@ -3,4 +3,4 @@
 /**
  * Direct-UDP endpoint candidate exchanged between authenticated room members.
  */
-export type MatchEndpointPayload = { room_id: string; endpoint: string; nonce: string };
+export type MatchEndpointPayload = { room_id: string, endpoint: string, nonce: string, };
