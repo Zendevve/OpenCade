@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 
 pub const MAX_PROBE_FRAMES: u64 = 10_000;
 const RETRY_INTERVAL: Duration = Duration::from_millis(25);
-const COMPLETION_GRACE: Duration = Duration::from_millis(250);
+// Keep answering lagging final-frame retries after the local transcript completes. A full second
+// covers process-start and scheduler skew observed on shared CI runners without extending the
+// bounded match deadline or changing the deterministic transcript.
+const COMPLETION_GRACE: Duration = Duration::from_secs(1);
 
 // Kept private to the crate so the proof protocol can evolve independently of the data-plane API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,15 +118,12 @@ pub async fn run_match_probe(
                     send_probe_frame(peer, config, local_frame.clone()).await?;
                     frames_sent += 1;
                 }
-                Ok(Err(error)) => {
-                    if matches!(&error, TransportError::Io(message) if message.contains("10054") || message.to_lowercase().contains("forcibly closed"))
-                    {
-                        send_probe_frame(peer, config, local_frame.clone()).await?;
-                        frames_sent += 1;
-                        continue;
-                    }
-                    return Err(error);
+                Ok(Err(TransportError::PeerUnavailable)) => {
+                    tokio::time::sleep(wait).await;
+                    send_probe_frame(peer, config, local_frame.clone()).await?;
+                    frames_sent += 1;
                 }
+                Ok(Err(error)) => return Err(error),
                 Ok(Ok(packet)) => {
                     let remote = validated_remote_frame(packet, config)?;
                     if remote.frame < frame_number {
@@ -172,12 +172,20 @@ async fn send_probe_frame(
     config: &MatchProbeConfig,
     frame: InputFrame,
 ) -> Result<(), TransportError> {
-    peer.send_packet(&ProbePacket::Input {
-        room_id: config.descriptor.room_id.clone(),
-        session_key: config.session_key.clone(),
-        frame,
-    })
-    .await
+    match peer
+        .send_packet(&ProbePacket::Input {
+            room_id: config.descriptor.room_id.clone(),
+            session_key: config.session_key.clone(),
+            frame,
+        })
+        .await
+    {
+        // A connected UDP socket can receive an ICMP port-unreachable response while the other
+        // process is still binding. The probe's bounded retry loop treats that startup race like
+        // a dropped datagram instead of failing the match immediately.
+        Err(TransportError::PeerUnavailable) => Ok(()),
+        result => result,
+    }
 }
 
 fn validated_remote_frame(
@@ -218,9 +226,10 @@ async fn linger_for_peer(
                 send_probe_frame(peer, config, final_frame.clone()).await?;
                 *frames_sent += 1;
             }
-            Ok(Err(error)) if matches!(&error, TransportError::Io(message) if message.contains("10054") || message.to_lowercase().contains("forcibly closed")) =>
-            {
-                continue;
+            Ok(Err(TransportError::PeerUnavailable)) => {
+                tokio::time::sleep(wait).await;
+                send_probe_frame(peer, config, final_frame.clone()).await?;
+                *frames_sent += 1;
             }
             Ok(Err(error)) => return Err(error),
             Ok(Ok(packet)) => {
