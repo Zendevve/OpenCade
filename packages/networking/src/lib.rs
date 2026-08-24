@@ -4,9 +4,17 @@ use tokio::sync::mpsc;
 
 mod probe;
 mod report;
+mod stun;
+mod traversal;
 
 pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
-pub use report::{verify_match_reports, MatchVerification, ReportVerificationError};
+pub use report::{
+    read_match_report, summarize_match_reports, verify_match_reports, AlphaCampaignFailure,
+    AlphaCampaignSummary, CompatibilityResult, MatchVerification, ReportReadError,
+    ReportVerificationError, ALPHA_MATCH_FRAMES, MAX_REPORT_BYTES,
+};
+pub use stun::{discover_reflexive_address, NatMapping, StunObservation};
+pub use traversal::{punch_hole, HolePunchConfig, HolePunchReport};
 
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
@@ -65,6 +73,12 @@ pub enum TransportError {
         received_frames: u64,
         expected_frames: u64,
     },
+    #[error("STUN discovery timed out")]
+    StunTimeout,
+    #[error("invalid STUN response: {0}")]
+    InvalidStunResponse(String),
+    #[error("UDP hole punch timed out after {attempts} attempts")]
+    HolePunchTimeout { attempts: u8 },
 }
 
 /// Connected UDP transport for LAN proof runs. Authentication and endpoint negotiation remain in

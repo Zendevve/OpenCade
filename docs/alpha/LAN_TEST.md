@@ -5,26 +5,32 @@ direct UDP frame transport; it does not claim FBNeo netplay support.
 
 ## Before the session
 
-1. On the host, set a 32-byte-or-longer `SESSION_SECRET` and run
-   `docker compose up --build -d`.
+1. For same-LAN tests, set a 32-byte-or-longer `SESSION_SECRET` on the host and run
+   `docker compose up --build -d`. For different-NAT tests, deploy the same server behind a
+   publicly reachable HTTPS/WSS endpoint; do not expose a developer laptop directly.
 2. Confirm `GET /health` and `GET /ready` both return HTTP 200.
-3. Point both clients at the host's LAN URL with `VITE_API_URL` and allow TCP 8080 through the host
-   firewall.
-4. Run `pnpm -C apps/client tauri dev` on both Windows machines.
-5. Use fixture-free local ROM scanning only; never attach ROMs or emulator binaries to reports.
+3. Point both clients at the LAN server or deployed public control-plane URL with `VITE_API_URL`.
+   For LAN, allow TCP 8080 through the host firewall.
+4. For the different-NAT phase, set `VITE_STUN_SERVER=<numeric-ip>:3478` on both clients. The server
+   must implement RFC 8489 Binding. DNS names are deliberately not resolved by the alpha client.
+5. Run `pnpm -C apps/client tauri dev` on both Windows machines.
+6. Use fixture-free local ROM scanning only; never attach ROMs or emulator binaries to reports.
 
 ## Scenario
 
 1. Register two separate users and select the same game.
 2. Keep both lobby screens open until each user is visible.
 3. User A sends a challenge; user B accepts it.
-4. Confirm both clients reach `connecting`. Each desktop client reserves a UDP port and exchanges a
-   nonce-bound `match.endpoint` candidate through the authenticated WebSocket.
-5. Wait for both clients to report `Direct UDP verified`, with 60 received frames and the same
+4. Confirm both clients reach `connecting`. Each desktop client reserves one UDP socket, optionally
+   discovers its reflexive address through STUN on that same socket, then exchanges host/reflexive
+   candidates and a nonce through the authenticated WebSocket.
+5. The clients send bounded, room/session-bound punch packets to the advertised candidates.
+   Unknown sources and mismatched credentials are ignored.
+6. Wait for both clients to report `Direct UDP verified`, with 60 received frames and the same
    transcript checksum. The host then transitions the room to `playing` and `finished`.
-6. If either side reports a firewall or timeout error, allow the advertised UDP port through the
+7. If either side reports a firewall or timeout error, allow the advertised UDP port through the
    firewall and select `Retry LAN probe` on both clients.
-7. Export the redacted report from each client. Copy both reports to one machine and verify them:
+8. Export the redacted report from each client. Copy both reports to one machine and verify them:
 
    ```bash
    opencade-match-verify host-report.json guest-report.json
@@ -65,3 +71,17 @@ cargo build -p opencade-networking --bins --release --locked
 
 Record each attempt in `MATCH_REPORT_TEMPLATE.md`. Do not schedule relay work until ten LAN attempts
 have at least an 80% connection-and-completion rate or show one concentrated, fixable failure.
+
+## Campaign gate
+
+Run five same-LAN and five different-NAT attempts, storing exactly two JSON reports per room in one
+directory. Then derive the gate and compatibility matrix:
+
+```bash
+opencade-alpha-summary ./campaign-reports
+```
+
+Exit 0 means at least 8 of 10 rooms passed. Exit 1 means the evidence was readable but the gate did
+not pass; exit 2 means the input was invalid. A single Binding response only proves `open` (the
+mapped address equals the advertised host address) or `mapped`; it does not claim cone/symmetric NAT
+classification. That requires RFC 5780 behavior discovery and remains deferred.

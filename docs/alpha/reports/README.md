@@ -19,12 +19,14 @@ Result 10/10 on 2026-08-24 (see CI).
 Physical LAN requires 2× Windows 10/11 on the same subnet, `docker compose up --build -d`,
 `VITE_API_URL=http://<host-lan-ip>:8080`, firewall TCP 8080 + UDP probe ports. Follow
 `docs/alpha/LAN_TEST.md`, save each attempt as `attempt-01-host.json` and
-`attempt-01-guest.json`, then verify every pair:
+`attempt-01-guest.json`, then summarize the directory:
 
 ```bash
-opencade-match-verify attempt-01-host.json attempt-01-guest.json
+opencade-alpha-summary .
 ```
 
-Pass is at least 8 verified attempts out of 10. Do not fabricate reports—they must come from real
+The summary pairs reports by room ID, verifies each pair, and emits a compatibility matrix by game,
+platform, observed mapping, and selected candidate. Pass is at least 8 verified attempts out of 10.
+Do not fabricate reports—they must come from real
 two-machine runs. Until then, this gate is `HALT: physical LAN not available in this single-box
 environment—local 10/10 + evidence tooling ready`.

@@ -157,6 +157,7 @@ jobs:
           path: |
             target/release/opencade-match-probe.exe
             target/release/opencade-match-verify.exe
+            target/release/opencade-alpha-summary.exe
           if-no-files-found: error
           retention-days: 14
 

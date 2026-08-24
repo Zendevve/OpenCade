@@ -21,6 +21,7 @@ serde_json = "1"
 opencade-adapter-fbneo = { path = "../../../adapters/fbneo" }
 opencade-emulator-sdk = { path = "../../../packages/emulator-sdk" }
 opencade-networking = { path = "../../../packages/networking" }
+opencade-protocol = { path = "../../../packages/protocol" }
 uuid = { version = "1", features = ["v4"] }
 
 [features]

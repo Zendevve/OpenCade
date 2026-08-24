@@ -8,11 +8,11 @@
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
-OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, and LAN UDP transport. FBNeo netplay, NAT traversal, and relay fallback remain explicitly unproven and are not advertised as implemented.
+OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, direct UDP transport, and an evidence-gated STUN/hole-punch path. FBNeo netplay, physical cross-NAT results, behavior classification, and relay fallback remain explicitly unproven and are not advertised as implemented.
 
 ## Support — keep it community-owned
 
-OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, and deterministic transport run today. What remains is the hard part: NAT traversal, relay fallback, and the emulator seam — expensive, unglamorous systems work that determines whether matches actually connect.
+OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, deterministic transport, STUN discovery, and bounded hole punching run today. What remains is physical network evidence, relay fallback, and the emulator seam — expensive, unglamorous systems work that determines whether matches actually connect.
 
 **[☕ Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — one coffee keeps the relay and adapter work open. No paywall, no premium.
 
@@ -141,7 +141,9 @@ High-level: `Client (Tauri)` ↔ `Server (Axum REST + authenticated WebSocket)` 
 
 - **Server:** auth (Argon2id), hashed sessions, games, server hints, lobbies, durable challenges,
   rooms/matches, and authenticated WebSocket signaling (`offer`/`answer`/`candidate`).
-- **Networking:** deterministic in-memory and connected UDP transports are implemented; hole punching, STUN, and relay fallback are deferred until two-machine LAN evidence exists.
+- **Networking:** deterministic in-memory and connected UDP transports, RFC 8489 reflexive-address
+  discovery, and bounded nonce-bound hole punching are implemented. Cone/symmetric behavior
+  classification and relay fallback remain deferred pending physical campaign evidence.
 - **Client:** login/register, games, lobby challenges, match state, local availability scan, diagnostics, and redacted report export; Rust core owns process spawn, filesystem validation, and diagnostics.
 - **Emulator SDK:** trait-based adapters with safe process launch (no shell injection, argument escaping), ROM validation, and game-definition TOML.
 

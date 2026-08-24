@@ -1687,6 +1687,7 @@ dependencies = [
  "opencade-adapter-fbneo",
  "opencade-emulator-sdk",
  "opencade-networking",
+ "opencade-protocol",
  "serde",
  "serde_json",
  "tauri",
@@ -1716,6 +1717,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

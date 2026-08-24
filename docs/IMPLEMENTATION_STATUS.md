@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-08-23.
+Updated 2026-08-24.
 
 ## Implemented and automated
 
@@ -21,14 +21,19 @@ Updated 2026-08-23.
   60-frame transcripts and machine-readable reports.
 - One canonical, privacy-minimized desktop/CLI evidence format, a fail-closed paired-report
   verifier, and CI-built Windows LAN alpha tools.
+- RFC 8489 reflexive-address discovery and bounded authenticated UDP hole punching on the same
+  reserved socket, with host/reflexive candidate evidence in redacted reports.
+- A fail-closed campaign summarizer that derives the 8-of-10 alpha gate and compatibility matrix
+  from paired reports.
 - PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, two-process, TypeScript, and MSRV
   checks in CI.
 
 ## Deliberately not claimed
 
-- FBNeo netplay. The adapter reports `netplay: false` until a public documented interface or an
-  original clean-room bridge satisfies ADR 0001.
-- UDP hole punching, STUN classification, symmetric-NAT support, and relay fallback.
+- FBNeo netplay. The adapter reports `BlockedNoPublicInterface`; ADR 0002 records the public-source
+  feasibility result and exit criteria.
+- Cone/symmetric NAT behavior classification and relay fallback. One RFC 8489 Binding response is
+  deliberately reported only as `open`, `mapped`, or `unknown`.
 - Production packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.

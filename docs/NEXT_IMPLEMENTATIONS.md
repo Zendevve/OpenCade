@@ -8,6 +8,11 @@
 > implemented. See `docs/IMPLEMENTATION_STATUS.md` for the verified result and the remaining
 > real-hardware/NAT validation work. The original review is retained as the decision record.
 
+> **Traversal update (2026-08-24):** RFC 8489 discovery, bounded nonce-bound hole punching, and
+> automated 8-of-10 campaign aggregation are now implemented. Physical Windows evidence remains
+> the gate; cone/symmetric classification and relay fallback remain deferred. The sequencing below
+> is retained as the original pre-evidence plan.
+
 ## Recommendation: build the executable Proof of Match
 
 The next implementation should be one narrow, deterministic vertical slice:

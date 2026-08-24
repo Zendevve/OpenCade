@@ -168,7 +168,32 @@ pub struct SessionCandidatePayload {
 pub struct MatchEndpointPayload {
     pub room_id: String,
     pub endpoint: String,
+    #[serde(default)]
+    pub reflexive_endpoint: Option<String>,
+    #[serde(default)]
+    pub nat: NatMappingState,
     pub nonce: String,
+}
+
+/// Honest result of one STUN mapping observation. Cone/symmetric classification needs RFC 5780
+/// behavior discovery and is deliberately not inferred from a single Binding transaction.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/NatMappingState.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum NatMappingState {
+    #[default]
+    Unknown,
+    Open,
+    Mapped,
+}
+
+/// Candidate selected by the bounded direct-UDP traversal attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchCandidateKind.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum MatchCandidateKind {
+    Host,
+    Reflexive,
 }
 
 /// Result of a completed direct-UDP proof, relayed to the other room member.
@@ -217,6 +242,9 @@ pub struct MatchReportProbe {
     pub frames_received: u32,
     pub transcript_checksum: String,
     pub elapsed_ms: u32,
+    pub nat: Option<NatMappingState>,
+    pub candidate: Option<MatchCandidateKind>,
+    pub punch_attempts: Option<u8>,
 }
 
 /// Non-sensitive producer metadata used to diagnose platform-specific alpha failures.
@@ -359,6 +387,8 @@ mod tests {
         let payload = MatchEndpointPayload {
             room_id: "room-1".into(),
             endpoint: "192.168.1.20:42000".into(),
+            reflexive_endpoint: Some("203.0.113.9:52000".into()),
+            nat: NatMappingState::Mapped,
             nonce: "8a1110d5-8dd2-4ad2-9c88-ad9768bc4905".into(),
         };
         let encoded = serde_json::to_string(&Envelope::new("match.endpoint", payload.clone()))

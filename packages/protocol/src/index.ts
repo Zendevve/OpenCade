@@ -5,6 +5,8 @@ export type {
   PresencePayload,
   ChatPayload,
   MatchEndpointPayload,
+  MatchCandidateKind,
+  NatMappingState,
   MatchProbeCompletedPayload,
   MatchReport,
   MatchReportClient,

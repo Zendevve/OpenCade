@@ -627,16 +627,21 @@ Peer A                          Server (/ws)                         Peer B
 
 All three types carry `envelope.version = 1` and are validated: `roomId` must exist, sender must be a `room_members` row, `sdp`/`candidate` are opaque strings (length-capped, no execution).
 
-### 10.2 NAT traversal — direct UDP → hole-punch → STUN → WS relay fallback
+### 10.2 NAT traversal — host/reflexive candidates and UDP hole punching
 
-`packages/networking/src/nat.ts` (and Rust side for Tauri diagnostics) implements the ordered fallback:
+`packages/networking/src/{stun,traversal}.rs` implements the current direct path:
 
-1. **Direct UDP** — try peer's advertised `host:port` from signaling.
-2. **Hole punching** — simultaneous `UDP` sends to each peer's reflexive address; 3 attempts, 500 ms apart.
-3. **STUN** — query configured STUN server (`stun:stun.opencade.local:3478` in dev, public STUN in prod) to learn reflexive address; re-attempt.
-4. **WS relay fallback** — keep `/ws` open; server forwards frames in-process. In MVP this _is_ the relay. `services/relay` (opencade-relay) is a placeholder WS echo that will become a real TURN relay post-MVP without protocol change.
+1. Reserve one UDP socket before signaling.
+2. If configured, send an RFC 8489 Binding request from that same socket to learn its reflexive
+   address.
+3. Exchange host/reflexive candidates and a nonce through the authenticated room WebSocket.
+4. Send room/session-bound punch packets to at most eight candidates, 3 attempts and 500 ms
+   apart. Accept only a known source with matching credentials, then connect the reserved socket.
 
-The client reports `natType` (`open | cone | symmetric | blocked`) from the STUN binding response. UI shows `Network Test` with this value.
+A single Binding server cannot honestly distinguish cone from symmetric behavior. Diagnostics and
+reports therefore use `unknown | open | mapped | blocked`: `open` means the reflexive address equals
+the advertised host address, while `mapped` only proves translation occurred. RFC 5780 behavior
+discovery and a relay fallback remain deferred until physical campaign evidence justifies them.
 
 ### 10.3 Latency — RTT / loss / jitter
 

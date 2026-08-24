@@ -252,6 +252,9 @@ fn validate_match_endpoint(envelope: &Envelope<Value>) -> Result<(), ()> {
         .endpoint
         .parse::<std::net::SocketAddr>()
         .map_err(|_| ())?;
+    if let Some(reflexive) = candidate.reflexive_endpoint {
+        reflexive.parse::<std::net::SocketAddr>().map_err(|_| ())?;
+    }
     Uuid::parse_str(&candidate.nonce).map_err(|_| ())?;
     Ok(())
 }

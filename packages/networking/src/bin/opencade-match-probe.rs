@@ -124,6 +124,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frames_received: u32::try_from(probe.frames_received).unwrap_or(u32::MAX),
             transcript_checksum: probe.transcript_checksum,
             elapsed_ms: u32::try_from(probe.elapsed_ms).unwrap_or(u32::MAX),
+            nat: Some(probe.nat),
+            candidate: Some(probe.candidate),
+            punch_attempts: Some(probe.punch_attempts),
         },
         client: MatchReportClient {
             platform: std::env::consts::OS.into(),
