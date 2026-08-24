@@ -3,4 +3,4 @@
 /**
  * Chat message. Used for `chat.message` in rooms/lobbies.
  */
-export type ChatPayload = { channel: string, body: string, author_id: string, };
+export type ChatPayload = { channel: string; body: string; author_id: string };
