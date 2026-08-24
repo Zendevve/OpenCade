@@ -12,6 +12,9 @@ describe("buildMatchReport", () => {
     frames_received: 60,
     transcript_checksum: "0123456789abcdef",
     elapsed_ms: 240,
+    nat: "mapped" as const,
+    candidate: "reflexive" as const,
+    punch_attempts: 2,
   };
 
   it("contains room correlation without identities, credentials, or local paths", () => {
@@ -57,6 +60,9 @@ describe("buildMatchReport", () => {
       frames_received: 60,
       transcript_checksum: "0123456789abcdef",
       elapsed_ms: 240,
+      nat: "mapped",
+      candidate: "reflexive",
+      punch_attempts: 2,
     });
     expect(JSON.stringify(report.probe)).not.toContain("user_id");
     expect(JSON.stringify(report.probe)).not.toContain("nonce");

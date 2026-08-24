@@ -1,27 +1,28 @@
 [package]
 name = "opencade-client"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "OpenCade desktop client (Tauri + Rust backend)"
 authors = ["OpenCade Contributors"]
 license = "Apache-2.0"
 repository = "https://github.com/opencade/opencade"
-rust-version = "1.78"
+rust-version = "1.98"
 
 [build-dependencies]
-tauri-build = { version = "1.5", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-tauri = { version = "1.6", features = [] }
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+tauri = { version = "2.11.5", features = [] }
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 opencade-adapter-fbneo = { path = "../../../adapters/fbneo" }
 opencade-emulator-sdk = { path = "../../../packages/emulator-sdk" }
 opencade-networking = { path = "../../../packages/networking" }
-uuid = { version = "1", features = ["v4"] }
+opencade-protocol = { path = "../../../packages/protocol" }
+uuid = { version = "1.25.0", features = ["v4"] }
 
 [features]
 default = ["custom-protocol"]

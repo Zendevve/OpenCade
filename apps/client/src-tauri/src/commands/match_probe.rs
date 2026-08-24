@@ -1,11 +1,15 @@
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
-use opencade_networking::{run_match_probe, MatchProbeConfig, MatchProbeReport, UdpPeer};
+use opencade_networking::{
+    HolePunchConfig, MatchProbeConfig, MatchProbeReport, UdpPeer, discover_reflexive_address,
+    punch_hole, run_match_probe,
+};
+use opencade_protocol::{MatchCandidateKind, NatMappingState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
 const MAX_ACTIVE_PROBES: usize = 8;
@@ -31,6 +35,8 @@ struct PreparedProbe {
 #[derive(Debug, Clone, Serialize)]
 pub struct MatchEndpointCandidate {
     pub endpoint: SocketAddr,
+    pub reflexive_endpoint: Option<SocketAddr>,
+    pub nat: NatMappingState,
     pub nonce: String,
 }
 
@@ -39,6 +45,7 @@ pub struct ReserveMatchProbeRequest {
     pub room_id: String,
     pub advertised_host: Option<Ipv4Addr>,
     pub bind_port: Option<u16>,
+    pub stun_server: Option<SocketAddr>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +56,7 @@ pub struct RunMatchProbeRequest {
     pub peer_user_id: String,
     pub role: PeerRole,
     pub peer_endpoint: SocketAddr,
+    pub peer_reflexive_endpoint: Option<SocketAddr>,
     pub peer_nonce: String,
     #[serde(default = "default_frame_count")]
     pub frame_count: u64,
@@ -89,8 +97,27 @@ pub async fn reserve_match_probe(
         Some(_) => return Err("advertised_host must not be unspecified".into()),
         None => discover_local_ipv4()?,
     };
+    let endpoint = SocketAddr::from((host, port));
+    let stun = match request.stun_server {
+        Some(server) => {
+            match discover_reflexive_address(&peer, server, Duration::from_millis(1_500)).await {
+                Ok(observation) => Some(observation.reflexive_endpoint),
+                Err(error) => {
+                    tracing::warn!(%error, %server, "STUN discovery failed; retaining host candidate");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
     let candidate = MatchEndpointCandidate {
-        endpoint: SocketAddr::from((host, port)),
+        endpoint,
+        reflexive_endpoint: stun.filter(|reflexive| *reflexive != endpoint),
+        nat: match stun {
+            Some(reflexive) if reflexive == endpoint => NatMappingState::Open,
+            Some(_) => NatMappingState::Mapped,
+            None => NatMappingState::Unknown,
+        },
         nonce: Uuid::new_v4().to_string(),
     };
     let mut probes = state.probes.lock().await;
@@ -143,6 +170,29 @@ pub async fn run_reserved_match_probe(
         prepared
     };
     let probe = async move {
+        let session_key = combined_session_key(&prepared.candidate.nonce, &request.peer_nonce)?;
+        let mut peer_candidates = vec![request.peer_endpoint];
+        if let Some(reflexive) = request.peer_reflexive_endpoint {
+            peer_candidates.push(reflexive);
+        }
+        let punch_config = HolePunchConfig::new(
+            request.room_id.clone(),
+            session_key.clone(),
+            peer_candidates,
+            3,
+            Duration::from_millis(500),
+        )
+        .map_err(|error| error.to_string())?;
+        let (peer, punch) = punch_hole(prepared.peer, &punch_config)
+            .await
+            .map_err(|error| error.to_string())?;
+        let candidate_kind = if request.peer_reflexive_endpoint == Some(punch.selected_peer)
+            && request.peer_reflexive_endpoint != Some(request.peer_endpoint)
+        {
+            MatchCandidateKind::Reflexive
+        } else {
+            MatchCandidateKind::Host
+        };
         let descriptor = MatchDescriptor {
             room_id: request.room_id,
             game_id: request.game_id,
@@ -151,10 +201,9 @@ pub async fn run_reserved_match_probe(
             role: request.role,
             transport: TransportKind::DirectUdp,
             local_endpoint: prepared.candidate.endpoint,
-            peer_endpoint: request.peer_endpoint,
+            peer_endpoint: punch.selected_peer,
             input_delay_frames: 2,
         };
-        let session_key = combined_session_key(&prepared.candidate.nonce, &request.peer_nonce)?;
         let config = MatchProbeConfig::new(
             descriptor,
             session_key,
@@ -162,14 +211,13 @@ pub async fn run_reserved_match_probe(
             Duration::from_millis(request.timeout_ms),
         )
         .map_err(|error| error.to_string())?;
-        let peer = prepared
-            .peer
-            .connect(request.peer_endpoint)
+        let mut report = run_match_probe(&peer, &config)
             .await
             .map_err(|error| error.to_string())?;
-        run_match_probe(&peer, &config)
-            .await
-            .map_err(|error| error.to_string())
+        report.nat = prepared.candidate.nat;
+        report.candidate = candidate_kind;
+        report.punch_attempts = punch.attempts;
+        Ok(report)
     };
     let result = cancel_or_complete(probe, cancel_rx).await;
     remove_running_probe(&state, &room_id, run_id).await;
@@ -194,7 +242,8 @@ pub async fn cancel_match_probe(
 }
 
 async fn cancel_probe(state: &MatchProbeState, room_id: &str) {
-    if let Some(MatchProbeSlot::Running { cancel, .. }) = state.probes.lock().await.remove(room_id) {
+    if let Some(MatchProbeSlot::Running { cancel, .. }) = state.probes.lock().await.remove(room_id)
+    {
         let _ = cancel.send(true);
     }
 }
@@ -285,7 +334,8 @@ mod tests {
     async fn cancellation_interrupts_pending_probe() {
         let (cancel_tx, cancel_rx) = watch::channel(false);
         cancel_tx.send(true).expect("receiver remains active");
-        let result = cancel_or_complete(std::future::pending::<Result<(), String>>(), cancel_rx).await;
+        let result =
+            cancel_or_complete(std::future::pending::<Result<(), String>>(), cancel_rx).await;
         assert_eq!(result, Err("match probe cancelled".into()));
     }
 

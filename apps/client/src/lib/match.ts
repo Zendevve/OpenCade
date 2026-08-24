@@ -8,11 +8,27 @@ export function parseMatchEndpoint(payload: unknown): MatchEndpointPayload | und
   if (typeof payload !== "object" || payload === null) return undefined;
   const roomId = Reflect.get(payload, "room_id");
   const endpoint = Reflect.get(payload, "endpoint");
+  const reflexiveEndpoint = Reflect.get(payload, "reflexive_endpoint");
+  const nat = Reflect.get(payload, "nat");
   const nonce = Reflect.get(payload, "nonce");
-  if (typeof roomId !== "string" || typeof endpoint !== "string" || typeof nonce !== "string") {
+  if (
+    typeof roomId !== "string" ||
+    typeof endpoint !== "string" ||
+    (reflexiveEndpoint !== undefined &&
+      reflexiveEndpoint !== null &&
+      typeof reflexiveEndpoint !== "string") ||
+    (nat !== undefined && nat !== "unknown" && nat !== "open" && nat !== "mapped") ||
+    typeof nonce !== "string"
+  ) {
     return undefined;
   }
-  return { room_id: roomId, endpoint, nonce };
+  return {
+    room_id: roomId,
+    endpoint,
+    reflexive_endpoint: reflexiveEndpoint ?? null,
+    nat: nat ?? "unknown",
+    nonce,
+  };
 }
 
 export function parseMatchCompletion(payload: unknown): MatchProbeCompletedPayload | undefined {

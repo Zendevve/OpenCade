@@ -1,9 +1,9 @@
 use chrono::Utc;
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
-use opencade_networking::{run_match_probe, MatchProbeConfig, UdpPeer};
+use opencade_networking::{MatchProbeConfig, UdpPeer, run_match_probe};
 use opencade_protocol::{
-    MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole, MatchReportRoom,
-    MatchReportTransport, RoomState, MATCH_REPORT_SCHEMA_VERSION,
+    MATCH_REPORT_SCHEMA_VERSION, MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole,
+    MatchReportRoom, MatchReportTransport, RoomState,
 };
 use std::env;
 use std::net::SocketAddr;
@@ -124,6 +124,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frames_received: u32::try_from(probe.frames_received).unwrap_or(u32::MAX),
             transcript_checksum: probe.transcript_checksum,
             elapsed_ms: u32::try_from(probe.elapsed_ms).unwrap_or(u32::MAX),
+            nat: Some(probe.nat),
+            candidate: Some(probe.candidate),
+            punch_attempts: Some(probe.punch_attempts),
         },
         client: MatchReportClient {
             platform: std::env::consts::OS.into(),

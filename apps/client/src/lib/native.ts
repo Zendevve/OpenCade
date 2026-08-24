@@ -1,12 +1,17 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 export type GameAvailability = { game_id: string; available: boolean; warnings: string[] };
 export type NetworkDiagnostics = {
-  nat: "unknown" | "cone" | "symmetric";
+  nat: "unknown" | "open" | "mapped" | "blocked";
   rtt_ms: number | null;
   relay_reachable: boolean;
 };
-export type MatchEndpointCandidate = { endpoint: string; nonce: string };
+export type MatchEndpointCandidate = {
+  endpoint: string;
+  reflexive_endpoint?: string;
+  nat: "unknown" | "open" | "mapped";
+  nonce: string;
+};
 export type MatchProbeReport = {
   room_id: string;
   local_user_id: string;
@@ -17,6 +22,9 @@ export type MatchProbeReport = {
   frames_received: number;
   transcript_checksum: string;
   elapsed_ms: number;
+  nat: "unknown" | "open" | "mapped";
+  candidate: "host" | "reflexive";
+  punch_attempts: number;
 };
 
 export function isDesktopRuntime(): boolean {
@@ -50,7 +58,10 @@ export async function runNetworkTest(): Promise<NetworkDiagnostics> {
 export async function reserveMatchProbe(roomId: string): Promise<MatchEndpointCandidate> {
   if (!isDesktopRuntime()) throw new Error("LAN match probe requires the desktop client");
   return invoke<MatchEndpointCandidate>("reserve_match_probe", {
-    request: { room_id: roomId },
+    request: {
+      room_id: roomId,
+      stun_server: import.meta.env.VITE_STUN_SERVER || undefined,
+    },
   });
 }
 
@@ -61,6 +72,7 @@ export async function runReservedMatchProbe(request: {
   peer_user_id: string;
   role: "host" | "guest";
   peer_endpoint: string;
+  peer_reflexive_endpoint?: string;
   peer_nonce: string;
   frame_count?: number;
   timeout_ms?: number;

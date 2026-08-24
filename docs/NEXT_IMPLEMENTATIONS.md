@@ -8,6 +8,11 @@
 > implemented. See `docs/IMPLEMENTATION_STATUS.md` for the verified result and the remaining
 > real-hardware/NAT validation work. The original review is retained as the decision record.
 
+> **Traversal update (2026-08-24):** RFC 8489 discovery, bounded nonce-bound hole punching, and
+> automated 8-of-10 campaign aggregation are now implemented. Physical Windows evidence remains
+> the gate; cone/symmetric classification and relay fallback remain deferred. The sequencing below
+> is retained as the original pre-evidence plan.
+
 ## Recommendation: build the executable Proof of Match
 
 The next implementation should be one narrow, deterministic vertical slice:
@@ -239,7 +244,7 @@ the product claim or select a different externally managed emulator before conti
 5. Add `--migrate` and make the container run migrations before serving.
 6. Make `/health` liveness-only and `/ready` verify Postgres without returning raw DB errors.
 7. Remove Tauri `shell-open`, set a restrictive CSP, and enforce production session-secret checks.
-8. Add CI checks for `pnpm -r test`, typecheck, `docker compose config`, and Rust 1.78 MSRV.
+8. Add CI checks for `pnpm -r test`, typecheck, `docker compose config`, and Rust 1.98 MSRV.
 
 **Exit:** a clean database migrates, five real games are returned, bad DB state fails visibly, and
 router integration tests exercise the same app that `main` serves.

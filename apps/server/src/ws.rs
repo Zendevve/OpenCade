@@ -1,18 +1,17 @@
 use axum::{
     extract::{
-        ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade},
         State,
+        ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade, close_code},
     },
-    http::{header, HeaderMap},
+    http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
 use opencade_protocol::{
-    is_supported_version, Envelope, MatchEndpointPayload, MatchProbeCompletedPayload,
-    PROTOCOL_VERSION,
+    Envelope, MatchEndpointPayload, MatchProbeCompletedPayload, PROTOCOL_VERSION,
+    is_supported_version,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::Row;
-use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -20,7 +19,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
-    authn::{authenticate_token, AuthUser},
+    authn::{AuthUser, authenticate_token},
     error::AppError,
     state::AppState,
 };
@@ -84,7 +83,7 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState, user: AuthUse
     if let Some(previous) = state.ws_hub.insert(user_key.clone(), sender) {
         let _ = previous.try_send(Message::Close(Some(CloseFrame {
             code: close_code::NORMAL,
-            reason: Cow::Borrowed("replaced by a newer connection"),
+            reason: "replaced by a newer connection".into(),
         })));
     }
 
@@ -252,6 +251,9 @@ fn validate_match_endpoint(envelope: &Envelope<Value>) -> Result<(), ()> {
         .endpoint
         .parse::<std::net::SocketAddr>()
         .map_err(|_| ())?;
+    if let Some(reflexive) = candidate.reflexive_endpoint {
+        reflexive.parse::<std::net::SocketAddr>().map_err(|_| ())?;
+    }
     Uuid::parse_str(&candidate.nonce).map_err(|_| ())?;
     Ok(())
 }
@@ -305,7 +307,7 @@ async fn relay_to_room_members(
     for member_id in member_ids.into_iter().filter(|id| *id != sender_id) {
         if let Some(target) = state.ws_hub.get(&member_id.to_string()) {
             target
-                .try_send(Message::Text(original_text.to_string()))
+                .try_send(Message::Text(original_text.to_string().into()))
                 .map_err(|error| {
                     warn!(%error, user_id = %member_id, %room_id, "signaling queue unavailable");
                     RelayError::PeerUnavailable
@@ -367,7 +369,10 @@ async fn send_error(
 
 async fn send_envelope(socket: &mut WebSocket, envelope: Envelope<Value>) -> Result<(), ()> {
     let text = serde_json::to_string(&envelope).map_err(|_| ())?;
-    socket.send(Message::Text(text)).await.map_err(|_| ())
+    socket
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|_| ())
 }
 
 #[cfg(test)]

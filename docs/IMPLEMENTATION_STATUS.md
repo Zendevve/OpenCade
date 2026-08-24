@@ -21,17 +21,25 @@ Updated 2026-08-24.
   60-frame transcripts and machine-readable reports.
 - One canonical, privacy-minimized desktop/CLI evidence format, a fail-closed paired-report
   verifier, and CI-built Windows LAN alpha tools.
-- NAT traversal fallback (direct UDP → hole-punch → STUN → WS/relay) via `packages/networking` `NatTraversal`/`FallbackOrder`, STUN hint in `GET /servers` (`stun:host:port`), and latency metrics (EWMA RTT alpha=0.2, loss, jitter) over 30 samples.
-- Standalone `opencade-relay` service (Axum WS relay on `/relay` with `GET /health`/`ready`, room bucket forwarding, envelope validation, graceful shutdown) wired in `docker-compose.yml` on `3478` and `3478/udp` with dedicated Dockerfile.
-- Desktop `diagnose_network` reports `nat`, `rtt_ms`, `loss`, `jitter_ms`, `relay_reachable`, `stun_reachable` with wired Tauri command and typed `apps/client/src/lib/diagnostics.ts` wrapper.
-- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, NAT, relay, two-process, TypeScript, and MSRV
+- RFC 8489 reflexive-address discovery and bounded authenticated UDP hole punching on the same
+  reserved socket, with host/reflexive candidate evidence in redacted reports.
+- A fail-closed campaign summarizer that derives the 8-of-10 alpha gate and compatibility matrix
+  from paired reports.
+- A standalone `opencade-relay` service with health/readiness routes and bounded room forwarding,
+  plus server-provided STUN hints and 30-sample latency metrics.
+- Desktop network diagnostics backed by real RFC 8489 Binding when a STUN endpoint is configured,
+  with typed RTT, loss, jitter, relay-reachability, and STUN-reachability fields.
+- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, NAT, relay, two-process,
+  TypeScript, and MSRV
   checks in CI.
 
 ## Deliberately not claimed
 
-- FBNeo netplay. The adapter reports `netplay: false` until a public documented interface or an
-  original clean-room bridge satisfies ADR 0001.
-- Symmetric-NAT traversal beyond classification, TURN allocation, and production STUN/TURN deployment.
+- FBNeo netplay. The adapter reports `BlockedNoPublicInterface`; ADR 0002 records the public-source
+  feasibility result and exit criteria.
+- Cone/symmetric NAT behavior classification and proven relay fallback. One RFC 8489 Binding response is
+  deliberately reported only as `open`, `mapped`, or `unknown`.
+- TURN allocation and production STUN/TURN deployment.
 - Production packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.

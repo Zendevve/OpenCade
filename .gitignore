@@ -34,6 +34,7 @@ out/
 
 # ── Tauri ────────────────────────────────────────────────────
 apps/client/src-tauri/target/
+apps/client/src-tauri/gen/schemas/
 apps/client/dist/
 apps/client/bundle/
 

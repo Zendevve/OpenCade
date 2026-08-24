@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- builder ---------------------------------------------------------------
-FROM rust:1.78-slim AS builder
+FROM rust:1.98-bookworm AS builder
 WORKDIR /app
 
 # Copy workspace manifests for caching
@@ -26,7 +26,7 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
     && echo "" > packages/game-definitions/src/lib.rs \
     && echo "" > adapters/fbneo/src/lib.rs \
     && echo "fn main() {}" > services/relay/src/main.rs \
-    && cargo build --release --locked -p opencade-relay || true
+    && cargo build --release --locked -p opencade-relay
 
 # Copy real sources
 COPY . .

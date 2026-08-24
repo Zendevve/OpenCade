@@ -76,6 +76,8 @@ export function useLanMatchProbe({
           {
             room_id: roomId,
             endpoint: candidate.endpoint,
+            reflexive_endpoint: candidate.reflexive_endpoint ?? null,
+            nat: candidate.nat,
             nonce: candidate.nonce,
           },
           () => cancelled || probeAttempt.current !== attempt,
@@ -126,6 +128,7 @@ export function useLanMatchProbe({
           peer_user_id: participants.peerUserId,
           role: participants.role,
           peer_endpoint: peerEndpoint.endpoint,
+          peer_reflexive_endpoint: peerEndpoint.reflexive_endpoint ?? undefined,
           peer_nonce: peerEndpoint.nonce,
         });
         if (cancelled || probeAttempt.current !== attempt) return;

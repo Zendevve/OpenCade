@@ -1,4 +1,4 @@
-use opencade_server::{build_app, shutdown_signal, AppState, Config};
+use opencade_server::{AppState, Config, build_app, shutdown_signal};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing::info;

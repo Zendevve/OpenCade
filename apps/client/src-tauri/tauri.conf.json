@@ -2,46 +2,38 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist"
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
   },
-  "package": {
-    "productName": "OpenCade",
-    "version": "0.1.0"
+  "bundle": {
+    "active": true,
+    "category": "Game",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "execute": false,
-        "open": false,
-        "sidecar": false
-      }
-    },
-    "bundle": {
-      "active": true,
-      "category": "Game",
-      "identifier": "com.opencade.client",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ]
-    },
-    "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:8080 ws://localhost:8080; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
-    },
+  "productName": "OpenCade",
+  "mainBinaryName": "OpenCade",
+  "version": "0.1.0",
+  "identifier": "com.opencade.client",
+  "plugins": {},
+  "app": {
     "windows": [
       {
         "fullscreen": false,
         "height": 720,
         "resizable": true,
         "title": "OpenCade",
-        "width": 1280
+        "width": 1280,
+        "useHttpsScheme": true
       }
-    ]
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost 'self' http://localhost:8080 ws://localhost:8080; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
   }
 }

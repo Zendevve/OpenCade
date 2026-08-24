@@ -1,36 +1,7 @@
+use opencade_networking::{NatMapping, UdpPeer, discover_reflexive_address};
 use serde::Serialize;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum NatType {
-    Open,
-    Cone,
-    Symmetric,
-    Blocked,
-    #[default]
-    Unknown,
-}
-
-impl NatType {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Cone => "cone",
-            Self::Symmetric => "symmetric",
-            Self::Blocked => "blocked",
-            Self::Unknown => "unknown",
-        }
-    }
-}
-
-impl std::fmt::Display for NatType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
 
 #[derive(Debug, Serialize)]
 pub struct NetworkDiagnostics {
@@ -42,58 +13,76 @@ pub struct NetworkDiagnostics {
     pub stun_reachable: bool,
 }
 
-#[must_use]
-pub fn classify_nat(rtt_ok: bool, stun_ok: bool) -> &'static str {
-    let _ = rtt_ok;
-    if stun_ok {
-        NatType::Cone.as_str()
-    } else {
-        NatType::Unknown.as_str()
-    }
+async fn configured_stun_server() -> Option<SocketAddr> {
+    let endpoint = match std::env::var("OPENCADE_STUN_SERVER") {
+        Ok(endpoint) => endpoint,
+        Err(_) => {
+            let host = std::env::var("STUN_HOST").ok()?;
+            let port = std::env::var("STUN_PORT")
+                .ok()
+                .and_then(|value| value.parse::<u16>().ok())
+                .unwrap_or(3478);
+            format!("{host}:{port}")
+        }
+    };
+    tokio::net::lookup_host(endpoint).await.ok()?.next()
 }
 
 #[tauri::command]
 pub async fn network_test() -> NetworkDiagnostics {
     let started = Instant::now();
+    let server = std::env::var("OPENCADE_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
     let relay_reachable = matches!(
         tokio::time::timeout(
             Duration::from_secs(1),
-            tokio::net::TcpStream::connect("127.0.0.1:8080"),
+            tokio::net::TcpStream::connect(server),
         )
         .await,
         Ok(Ok(_))
     );
-    let rtt_ms = if relay_reachable {
-        Some(started.elapsed().as_millis() as u64)
-    } else {
-        None
+
+    let stun_server = configured_stun_server().await;
+    let (nat, stun_rtt_ms, stun_reachable) = match stun_server {
+        None => ("unknown".to_string(), None, false),
+        Some(stun_server) => {
+            let stun_started = Instant::now();
+            match UdpPeer::bind_unconnected(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).await {
+                Ok(peer) => match discover_reflexive_address(
+                    &peer,
+                    stun_server,
+                    Duration::from_millis(1_500),
+                )
+                .await
+                {
+                    Ok(observation) => (
+                        match observation.mapping {
+                            NatMapping::Open => "open",
+                            NatMapping::Mapped => "mapped",
+                        }
+                        .to_string(),
+                        Some(
+                            stun_started
+                                .elapsed()
+                                .as_millis()
+                                .try_into()
+                                .unwrap_or(u64::MAX),
+                        ),
+                        true,
+                    ),
+                    Err(_) => ("blocked".to_string(), None, false),
+                },
+                Err(_) => ("blocked".to_string(), None, false),
+            }
+        }
     };
-    let rtt_ok = relay_reachable;
 
-    let stun_host =
-        std::env::var("STUN_HOST").unwrap_or_else(|_| "stun.opencade.local:3478".to_string());
-    let stun_reachable = matches!(
-        tokio::time::timeout(
-            Duration::from_millis(200),
-            tokio::net::TcpStream::connect(&stun_host),
-        )
-        .await,
-        Ok(Ok(_))
-    );
-
-    let nat = classify_nat(rtt_ok, stun_reachable).to_string();
-
-    // Loss and jitter are measured over a longer window in the full networking stack;
-    // for this lightweight TCP probe they are reported as zero but the fields are
-    // kept stable for the UI contract.
-    let loss = 0.0_f32;
-    let jitter_ms = 0.0_f32;
-
+    let relay_rtt_ms =
+        relay_reachable.then(|| started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
     NetworkDiagnostics {
         nat,
-        rtt_ms,
-        loss,
-        jitter_ms,
+        rtt_ms: stun_rtt_ms.or(relay_rtt_ms),
+        loss: 0.0,
+        jitter_ms: 0.0,
         relay_reachable,
         stun_reachable,
     }

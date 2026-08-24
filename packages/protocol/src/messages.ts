@@ -1,6 +1,8 @@
 import type { ChallengePayload } from "./generated/ChallengePayload.js";
 import type { ChatPayload } from "./generated/ChatPayload.js";
 import type { MatchEndpointPayload } from "./generated/MatchEndpointPayload.js";
+import type { MatchCandidateKind } from "./generated/MatchCandidateKind.js";
+import type { NatMappingState } from "./generated/NatMappingState.js";
 import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompletedPayload.js";
 import type { MatchReport } from "./generated/MatchReport.js";
 import type { MatchReportClient } from "./generated/MatchReportClient.js";
@@ -16,6 +18,8 @@ export type {
   ChallengePayload,
   ChatPayload,
   MatchEndpointPayload,
+  MatchCandidateKind,
+  NatMappingState,
   MatchProbeCompletedPayload,
   MatchReport,
   MatchReportClient,

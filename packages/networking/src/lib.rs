@@ -7,13 +7,21 @@ pub mod nat;
 
 mod probe;
 mod report;
+mod stun;
+mod traversal;
 
 pub use latency::LatencyMetrics;
 pub use nat::{
-    next_transport, transport_for_nat, FallbackOrder, NatTraversal, NatType, FALLBACK_ORDER,
+    FALLBACK_ORDER, FallbackOrder, NatTraversal, NatType, next_transport, transport_for_nat,
 };
-pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
-pub use report::{verify_match_reports, MatchVerification, ReportVerificationError};
+pub use probe::{MAX_PROBE_FRAMES, MatchProbeConfig, MatchProbeReport, run_match_probe};
+pub use report::{
+    ALPHA_MATCH_FRAMES, AlphaCampaignFailure, AlphaCampaignSummary, CompatibilityResult,
+    MAX_REPORT_BYTES, MatchVerification, ReportReadError, ReportVerificationError,
+    read_match_report, summarize_match_reports, verify_match_reports,
+};
+pub use stun::{NatMapping, StunObservation, discover_reflexive_address};
+pub use traversal::{HolePunchConfig, HolePunchReport, punch_hole};
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
 const MAX_DATAGRAM_BYTES: usize = 2_048;
@@ -71,6 +79,12 @@ pub enum TransportError {
         received_frames: u64,
         expected_frames: u64,
     },
+    #[error("STUN discovery timed out")]
+    StunTimeout,
+    #[error("invalid STUN response: {0}")]
+    InvalidStunResponse(String),
+    #[error("UDP hole punch timed out after {attempts} attempts")]
+    HolePunchTimeout { attempts: u8 },
 }
 
 /// Connected UDP transport for LAN proof runs. Authentication and endpoint negotiation remain in

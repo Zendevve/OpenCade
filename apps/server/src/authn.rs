@@ -1,6 +1,5 @@
 use argon2::password_hash::rand_core::{OsRng, RngCore};
 use axum::{
-    async_trait,
     extract::FromRequestParts,
     http::{header, request::Parts},
 };
@@ -20,7 +19,7 @@ pub struct AuthUser {
 pub fn hash_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 pub fn generate_session_token() -> String {
@@ -80,7 +79,6 @@ fn bearer_token(parts: &Parts) -> Result<&str, AppError> {
         .ok_or_else(|| AppError::Unauthorized("missing bearer token".into()))
 }
 
-#[async_trait]
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 

@@ -169,7 +169,19 @@ impl MatchDescriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdapterCapabilities {
     pub local_play: bool,
-    pub netplay: bool,
+    pub netplay: NetplayReadiness,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetplayReadiness {
+    Supported,
+    BlockedNoPublicInterface,
+}
+
+impl AdapterCapabilities {
+    pub fn supports_netplay(self) -> bool {
+        self.netplay == NetplayReadiness::Supported
+    }
 }
 
 /// Pluggable emulator backend.
@@ -192,7 +204,7 @@ pub trait EmulatorAdapter: Send + Sync {
     /// Validate and prepare a match before starting the emulator process.
     fn prepare_match(&self, descriptor: &MatchDescriptor) -> Result<(), AdapterError> {
         descriptor.validate()?;
-        if !self.capabilities().netplay {
+        if !self.capabilities().supports_netplay() {
             return Err(AdapterError::MatchPreparation(format!(
                 "adapter '{}' does not provide netplay",
                 self.id()
@@ -232,7 +244,7 @@ impl EmulatorAdapter for MockAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities {
             local_play: false,
-            netplay: true,
+            netplay: NetplayReadiness::Supported,
         }
     }
 
@@ -361,15 +373,17 @@ mod tests {
             spec.args.last(),
             Some(&rom.canonicalize().expect("canonical rom").into_os_string())
         );
-        assert!(spawn_validated(
-            &RecordingLauncher,
-            &executable,
-            &emulator_root,
-            &outside,
-            &rom_root,
-            &[],
-        )
-        .is_err());
+        assert!(
+            spawn_validated(
+                &RecordingLauncher,
+                &executable,
+                &emulator_root,
+                &outside,
+                &rom_root,
+                &[],
+            )
+            .is_err()
+        );
 
         std::fs::remove_dir_all(fixture).expect("remove fixture");
     }

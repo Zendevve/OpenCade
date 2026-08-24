@@ -3,3 +3,5 @@ packages:
   - "packages/*"
   - "adapters/*"
   - "services/*"
+allowBuilds:
+  esbuild: true

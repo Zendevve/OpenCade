@@ -1,23 +1,23 @@
 use axum::{
+    Json, Router,
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
-use opencade_protocol::{is_supported_version, Envelope};
+use opencade_protocol::{Envelope, is_supported_version};
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -105,17 +105,16 @@ async fn relay_ws_handler(
 
 fn extract_room_id_from_text(text: &str, fallback: &str) -> String {
     if let Ok(value) = serde_json::from_str::<Value>(text) {
-        if let Some(payload) = value.get("payload") {
-            if let Some(room) = payload.get("room_id").and_then(|v| v.as_str()) {
-                if !room.trim().is_empty() {
-                    return room.to_string();
-                }
-            }
+        if let Some(payload) = value.get("payload")
+            && let Some(room) = payload.get("room_id").and_then(|v| v.as_str())
+            && !room.trim().is_empty()
+        {
+            return room.to_string();
         }
-        if let Some(room) = value.get("room_id").and_then(|v| v.as_str()) {
-            if !room.trim().is_empty() {
-                return room.to_string();
-            }
+        if let Some(room) = value.get("room_id").and_then(|v| v.as_str())
+            && !room.trim().is_empty()
+        {
+            return room.to_string();
         }
     }
     fallback.to_string()
@@ -175,7 +174,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState, initial_room: Stri
                                 "message": format!("unsupported version: {}", envelope.version),
                                 "request_id": envelope.request_id,
                             });
-                            let _ = tx.send(Message::Text(err.to_string()));
+                            let _ = tx.send(Message::Text(err.to_string().into()));
                             continue;
                         }
                         if let Err(e) = envelope.validate() {
@@ -186,7 +185,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState, initial_room: Stri
                                 "message": e,
                                 "request_id": envelope.request_id,
                             });
-                            let _ = tx.send(Message::Text(err.to_string()));
+                            let _ = tx.send(Message::Text(err.to_string().into()));
                             continue;
                         }
                         let target_room = envelope

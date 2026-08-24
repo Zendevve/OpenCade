@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use opencade_protocol::{
-    MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole, MatchReportRoom,
-    MatchReportTransport, RoomState, MATCH_REPORT_SCHEMA_VERSION,
+    MATCH_REPORT_SCHEMA_VERSION, MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole,
+    MatchReportRoom, MatchReportTransport, RoomState,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -27,6 +27,9 @@ fn report(role: MatchReportRole) -> MatchReport {
             frames_received: 60,
             transcript_checksum: "0376c2e852f4fd25".into(),
             elapsed_ms: 240,
+            nat: Some(opencade_protocol::NatMappingState::Mapped),
+            candidate: Some(opencade_protocol::MatchCandidateKind::Reflexive),
+            punch_attempts: Some(2),
         },
         client: MatchReportClient {
             platform: "windows".into(),
@@ -102,6 +105,44 @@ fn verifier_cli_returns_machine_readable_success_and_failure() {
     let output: serde_json::Value =
         serde_json::from_slice(&oversized.stderr).expect("oversized output JSON");
     assert_eq!(output["code"], "report_too_large");
+
+    fs::remove_dir_all(directory).expect("remove fixture directory");
+}
+
+#[test]
+fn summary_cli_derives_eight_of_ten_campaign_gate() {
+    let directory = fixture_dir();
+    fs::create_dir(&directory).expect("fixture directory");
+
+    for attempt in 0..10 {
+        let room_id = format!("room-{attempt}");
+        let mut host = report(MatchReportRole::Host);
+        host.room.id.clone_from(&room_id);
+        let mut guest = report(MatchReportRole::Guest);
+        guest.room.id = room_id;
+        if attempt >= 8 {
+            guest.probe.transcript_checksum = "aaaaaaaaaaaaaaaa".into();
+        }
+        for (role, report) in [("host", host), ("guest", guest)] {
+            let path = directory.join(format!("attempt-{attempt:02}-{role}.json"));
+            fs::write(path, serde_json::to_vec(&report).expect("report JSON"))
+                .expect("campaign report");
+        }
+    }
+
+    let result = Command::new(env!("CARGO_BIN_EXE_opencade-alpha-summary"))
+        .arg(&directory)
+        .output()
+        .expect("run campaign summary");
+    assert!(result.status.success());
+    let output: serde_json::Value =
+        serde_json::from_slice(&result.stdout).expect("summary output JSON");
+    assert_eq!(output["attempts"], 10);
+    assert_eq!(output["verified"], 8);
+    assert_eq!(output["success_rate"], 0.8);
+    assert_eq!(output["gate_passed"], true);
+    assert_eq!(output["compatibility"][0]["attempts"], 10);
+    assert_eq!(output["compatibility"][0]["verified"], 8);
 
     fs::remove_dir_all(directory).expect("remove fixture directory");
 }

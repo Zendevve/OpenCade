@@ -1,11 +1,8 @@
-use opencade_networking::verify_match_reports;
+use opencade_networking::{read_match_report, verify_match_reports};
 use opencade_protocol::MatchReport;
 use serde::Serialize;
-use std::fs::File;
-use std::io::Read;
+use std::path::Path;
 use std::{env, process};
-
-const MAX_REPORT_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Serialize)]
 struct Failure {
@@ -58,42 +55,8 @@ fn run() -> Result<String, (Failure, i32)> {
 }
 
 fn read_report(path: &str, label: &'static str) -> Result<MatchReport, (Failure, i32)> {
-    let file = File::open(path).map_err(|_| {
-        (
-            Failure::new(
-                "report_unreadable",
-                format!("could not read {label} report"),
-            ),
-            2,
-        )
-    })?;
-    let mut bytes = Vec::new();
-    file.take(MAX_REPORT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| {
-            (
-                Failure::new(
-                    "report_unreadable",
-                    format!("could not read {label} report"),
-                ),
-                2,
-            )
-        })?;
-    if bytes.len() as u64 > MAX_REPORT_BYTES {
-        return Err((
-            Failure::new("report_too_large", format!("{label} report exceeds 64 KiB")),
-            2,
-        ));
-    }
-    serde_json::from_slice(&bytes).map_err(|_| {
-        (
-            Failure::new(
-                "report_invalid",
-                format!("{label} report is not a canonical OpenCade match report"),
-            ),
-            2,
-        )
-    })
+    read_match_report(Path::new(path))
+        .map_err(|error| (Failure::new(error.code(), format!("{label} {error}")), 2))
 }
 
 fn usage_failure() -> (Failure, i32) {

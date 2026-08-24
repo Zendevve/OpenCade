@@ -17,6 +17,9 @@ export function buildMatchReport(
       frames_received: probe.frames_received,
       transcript_checksum: probe.transcript_checksum,
       elapsed_ms: probe.elapsed_ms,
+      nat: probe.nat,
+      candidate: probe.candidate,
+      punch_attempts: probe.punch_attempts,
     },
     client: {
       platform: typeof navigator === "undefined" ? "unknown" : navigator.platform,

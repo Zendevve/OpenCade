@@ -2,12 +2,12 @@
 //! responses using the versioned [`Envelope`] format.
 
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use opencade_protocol::Envelope;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Application-level errors.
 ///
