@@ -1,4 +1,5 @@
-use opencade_networking::MatchProbeReport;
+use opencade_networking::verify_match_reports;
+use opencade_protocol::MatchReport;
 use std::net::{SocketAddr, UdpSocket};
 use std::process::{Child, Command, Output, Stdio};
 
@@ -46,7 +47,7 @@ fn spawn_probe(
         .expect("spawn match probe")
 }
 
-fn successful_report(output: Output) -> MatchProbeReport {
+fn successful_report(output: Output) -> MatchReport {
     assert!(
         output.status.success(),
         "probe failed: {}",
@@ -65,12 +66,17 @@ fn independent_processes_complete_the_same_udp_transcript() {
     let host_report = successful_report(host.wait_with_output().expect("host output"));
     let guest_report = successful_report(guest.wait_with_output().expect("guest output"));
 
-    assert_eq!(host_report.frames_received, 60);
-    assert_eq!(guest_report.frames_received, 60);
+    assert_eq!(host_report.probe.frames_received, 60);
+    assert_eq!(guest_report.probe.frames_received, 60);
     assert_eq!(
-        host_report.transcript_checksum,
-        guest_report.transcript_checksum
+        host_report.probe.transcript_checksum,
+        guest_report.probe.transcript_checksum
     );
-    assert_eq!(host_report.room_id, "two-process-room");
-    assert_eq!(guest_report.room_id, "two-process-room");
+    assert_eq!(host_report.room.id, "two-process-room");
+    assert_eq!(guest_report.room.id, "two-process-room");
+    assert!(
+        verify_match_reports(&host_report, &guest_report)
+            .expect("paired evidence")
+            .verified
+    );
 }

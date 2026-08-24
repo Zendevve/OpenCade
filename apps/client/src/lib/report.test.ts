@@ -2,7 +2,19 @@ import { describe, expect, it } from "vitest";
 import { buildMatchReport } from "./report.js";
 
 describe("buildMatchReport", () => {
-  it("contains room correlation without credentials or local paths", () => {
+  const probe = {
+    room_id: "room-123",
+    local_user_id: "host",
+    peer_user_id: "guest",
+    role: "host" as const,
+    transport: "direct_udp" as const,
+    frames_sent: 64,
+    frames_received: 60,
+    transcript_checksum: "0123456789abcdef",
+    elapsed_ms: 240,
+  };
+
+  it("contains room correlation without identities, credentials, or local paths", () => {
     const report = buildMatchReport(
       {
         id: "room-123",
@@ -11,11 +23,16 @@ describe("buildMatchReport", () => {
         guest_id: "guest",
         state: "finished",
       },
+      probe,
       new Date("2026-08-23T12:00:00Z")
     );
     const serialized = JSON.stringify(report);
     expect(report.exported_at).toBe("2026-08-23T12:00:00.000Z");
     expect(serialized).toContain("room-123");
+    expect(serialized).not.toContain("local_user_id");
+    expect(serialized).not.toContain("peer_user_id");
+    expect(serialized).not.toContain("host_id");
+    expect(serialized).not.toContain("guest_id");
     expect(serialized).not.toContain("token");
     expect(serialized).not.toContain("rom_path");
   });
@@ -29,23 +46,14 @@ describe("buildMatchReport", () => {
         guest_id: "guest",
         state: "finished",
       },
-      new Date("2026-08-23T12:00:00Z"),
-      {
-        room_id: "room-123",
-        local_user_id: "host",
-        peer_user_id: "guest",
-        role: "host",
-        transport: "direct_udp",
-        frames_sent: 60,
-        frames_received: 60,
-        transcript_checksum: "0123456789abcdef",
-        elapsed_ms: 240,
-      }
+      probe,
+      new Date("2026-08-23T12:00:00Z")
     );
 
     expect(report.probe).toEqual({
+      role: "host",
       transport: "direct_udp",
-      frames_sent: 60,
+      frames_sent: 64,
       frames_received: 60,
       transcript_checksum: "0123456789abcdef",
       elapsed_ms: 240,

@@ -2,6 +2,10 @@ import type { ChallengePayload } from "./generated/ChallengePayload.js";
 import type { ChatPayload } from "./generated/ChatPayload.js";
 import type { MatchEndpointPayload } from "./generated/MatchEndpointPayload.js";
 import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompletedPayload.js";
+import type { MatchReport } from "./generated/MatchReport.js";
+import type { MatchReportClient } from "./generated/MatchReportClient.js";
+import type { MatchReportProbe } from "./generated/MatchReportProbe.js";
+import type { MatchReportRoom } from "./generated/MatchReportRoom.js";
 import type { PresencePayload } from "./generated/PresencePayload.js";
 import type { RoomPayload } from "./generated/RoomPayload.js";
 import type { SessionAnswerPayload } from "./generated/SessionAnswerPayload.js";
@@ -13,6 +17,10 @@ export type {
   ChatPayload,
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
+  MatchReport,
+  MatchReportClient,
+  MatchReportProbe,
+  MatchReportRoom,
   PresencePayload,
   RoomPayload,
   SessionAnswerPayload,
@@ -21,6 +29,8 @@ export type {
 };
 export type { ChallengeState } from "./generated/ChallengeState.js";
 export type { RoomState } from "./generated/RoomState.js";
+export type { MatchReportRole } from "./generated/MatchReportRole.js";
+export type { MatchReportTransport } from "./generated/MatchReportTransport.js";
 
 export type HelloPayload = {
   user_id: string;

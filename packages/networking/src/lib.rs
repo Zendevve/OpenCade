@@ -3,8 +3,10 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
 mod probe;
+mod report;
 
 pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
+pub use report::{verify_match_reports, MatchVerification, ReportVerificationError};
 
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;

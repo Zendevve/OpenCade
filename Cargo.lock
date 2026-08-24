@@ -923,7 +923,9 @@ dependencies = [
 name = "opencade-networking"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "opencade-emulator-sdk",
+ "opencade-protocol",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

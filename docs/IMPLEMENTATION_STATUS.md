@@ -19,6 +19,8 @@ Updated 2026-08-23.
   runner wired through authenticated endpoint exchange and the desktop match screen.
 - A standalone two-node probe CLI plus a real two-process localhost test that verifies identical
   60-frame transcripts and machine-readable reports.
+- One canonical, privacy-minimized desktop/CLI evidence format, a fail-closed paired-report
+  verifier, and CI-built Windows LAN alpha tools.
 - PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, two-process, TypeScript, and MSRV
   checks in CI.
 
