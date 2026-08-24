@@ -115,7 +115,15 @@ pub async fn run_match_probe(
                     send_probe_frame(peer, config, local_frame.clone()).await?;
                     frames_sent += 1;
                 }
-                Ok(Err(error)) => return Err(error),
+                Ok(Err(error)) => {
+                    if matches!(&error, TransportError::Io(message) if message.contains("10054") || message.to_lowercase().contains("forcibly closed"))
+                    {
+                        send_probe_frame(peer, config, local_frame.clone()).await?;
+                        frames_sent += 1;
+                        continue;
+                    }
+                    return Err(error);
+                }
                 Ok(Ok(packet)) => {
                     let remote = validated_remote_frame(packet, config)?;
                     if remote.frame < frame_number {
@@ -209,6 +217,10 @@ async fn linger_for_peer(
             Err(_) => {
                 send_probe_frame(peer, config, final_frame.clone()).await?;
                 *frames_sent += 1;
+            }
+            Ok(Err(error)) if matches!(&error, TransportError::Io(message) if message.contains("10054") || message.to_lowercase().contains("forcibly closed")) =>
+            {
+                continue;
             }
             Ok(Err(error)) => return Err(error),
             Ok(Ok(packet)) => {
