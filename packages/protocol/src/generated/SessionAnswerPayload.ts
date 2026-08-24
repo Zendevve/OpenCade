@@ -3,4 +3,4 @@
 /**
  * SDP answer relayed verbatim between authenticated room members.
  */
-export type SessionAnswerPayload = { room_id: string; sdp: string };
+export type SessionAnswerPayload = { room_id: string, sdp: string, };

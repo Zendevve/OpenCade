@@ -2,12 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
+pub mod latency;
+pub mod nat;
+
 mod probe;
 mod report;
 
+pub use latency::LatencyMetrics;
+pub use nat::{
+    next_transport, transport_for_nat, FallbackOrder, NatTraversal, NatType, FALLBACK_ORDER,
+};
 pub use probe::{run_match_probe, MatchProbeConfig, MatchProbeReport, MAX_PROBE_FRAMES};
 pub use report::{verify_match_reports, MatchVerification, ReportVerificationError};
-
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;
 const MAX_DATAGRAM_BYTES: usize = 2_048;

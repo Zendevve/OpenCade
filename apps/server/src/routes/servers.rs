@@ -14,10 +14,18 @@ pub async fn list_servers(
     )
     .fetch_all(&state.pool)
     .await?;
+    let stun_hint = if state.config.stun_host.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "{}:{}",
+            state.config.stun_host, state.config.stun_port
+        ))
+    };
     let servers = rows
         .into_iter()
         .map(|row| -> Result<Value, AppError> {
-            Ok(json!({
+            let mut obj = json!({
                 "id": row.try_get::<uuid::Uuid, _>("id")
                     .map_err(|_| AppError::Internal("invalid server record".into()))?
                     .to_string(),
@@ -29,7 +37,11 @@ pub async fn list_servers(
                     .map_err(|_| AppError::Internal("invalid server record".into()))?,
                 "port": row.try_get::<i32, _>("port")
                     .map_err(|_| AppError::Internal("invalid server record".into()))?,
-            }))
+            });
+            if let Some(ref stun) = stun_hint {
+                obj["stun"] = json!(stun);
+            }
+            Ok(obj)
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Json(Envelope::new(
