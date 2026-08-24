@@ -23,6 +23,14 @@ Thank you for helping build an open, self-hostable alternative for arcade netpla
 
 ---
 
+## Support the Project
+
+OpenCade is Apache-2.0 and self-hosted by design. If you can't contribute code right now, you can still keep the hard systems work moving — NAT traversal, relay fallback, and the FBNeo netplay seam.
+
+**[☕ Support via Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — every coffee funds LAN test rigs, CI, and docs. No paywall, no premium: just open, auditable netplay.
+
+---
+
 ## Code of Conduct
 
 Be respectful, assume good intent, and keep discussion technical. Harassment, discrimination, or distribution of pirated content will result in a ban. See `CODE_OF_CONDUCT.md` if present.
@@ -276,3 +284,5 @@ Draft PRs are welcome for early feedback — mark as `Draft` and note what is st
 ---
 
 Thank you for building OpenCade the right way — original code, open protocol, self-hostable infrastructure.
+
+P.S. If this project saved you time, consider buying the maintainers a coffee: **https://buymeacoffee.com/zendevve**

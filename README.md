@@ -4,10 +4,17 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20Chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/Y4rDyTScPe)
 ![Status](https://img.shields.io/badge/status-proof--of--match-alpha-amber)
 ![Spec](https://img.shields.io/badge/spec-v0.1-lightgrey)
+[![Support OpenCade](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/zendevve)
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
 OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, and LAN UDP transport. FBNeo netplay, NAT traversal, and relay fallback remain explicitly unproven and are not advertised as implemented.
+
+## Support — keep it community-owned
+
+OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, and deterministic transport run today. What remains is the hard part: NAT traversal, relay fallback, and the emulator seam — expensive, unglamorous systems work that determines whether matches actually connect.
+
+**[☕ Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — one coffee keeps the relay and adapter work open. No paywall, no premium.
 
 ---
 
@@ -163,7 +170,11 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 General dev chat, architecture questions, emulator adapter ideas, and matchmaking talk — all in one place.
 
+If OpenCade helped you host a match, consider supporting the build: **https://buymeacoffee.com/zendevve**
+
 ## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — and if you can't contribute code, sponsorship via [Buy Me a Coffee](https://buymeacoffee.com/zendevve) keeps CI, docs, and LAN testing funded.
 
 ## Security
 
