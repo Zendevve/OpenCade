@@ -50,4 +50,3 @@ First auditable vertical slice: two authenticated users can challenge, negotiate
 ### Verified
 
 - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo test -p opencade-proof-of-match --all-features --locked` are clean.
-
