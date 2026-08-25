@@ -6,3 +6,4 @@ pub mod games;
 pub mod lobbies;
 pub mod rooms;
 pub mod servers;
+pub mod telemetry;

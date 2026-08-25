@@ -397,6 +397,67 @@ pub struct RoomPayload {
     pub state: RoomState,
 }
 
+/// Product-funnel events accepted by the privacy-minimized telemetry endpoint.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ProductEventName.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum ProductEventName {
+    GameSelected,
+    ReadinessCompleted,
+    ReadinessBlocked,
+    LobbyEntered,
+}
+
+/// Stable readiness checks used for aggregate blocker analysis.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
+#[ts(export, export_to = "../src/generated/ReadinessCheckId.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessCheckId {
+    Desktop,
+    ControlPlane,
+    GameRuntime,
+    NativePort,
+    Network,
+}
+
+/// Closed, data-minimized event contract. It intentionally has no arbitrary properties field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ProductEventPayload.ts")]
+pub struct ProductEventPayload {
+    pub event_id: String,
+    pub anonymous_session_id: String,
+    pub event: ProductEventName,
+    pub game_id: String,
+    #[serde(default)]
+    pub blocked_checks: Vec<ReadinessCheckId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ReadinessBlockCount.ts")]
+pub struct ReadinessBlockCount {
+    pub check: ReadinessCheckId,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+/// Rolling activation funnel. Small blocker cohorts are suppressed by the server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../src/generated/ActivationSummaryPayload.ts")]
+pub struct ActivationSummaryPayload {
+    pub window_days: u16,
+    #[ts(type = "number")]
+    pub selected_sessions: i64,
+    #[ts(type = "number")]
+    pub ready_sessions: i64,
+    #[ts(type = "number")]
+    pub lobby_sessions: i64,
+    #[ts(type = "number")]
+    pub readiness_blocked_events: i64,
+    pub selected_to_ready_rate: f64,
+    pub selected_to_lobby_rate: f64,
+    pub blocked_by_check: Vec<ReadinessBlockCount>,
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -673,5 +734,24 @@ mod tests {
         let reply = Envelope::reply("pong", "request-123", json!({}));
         assert_eq!(reply.request_id, "request-123");
         assert_eq!(reply.msg_type, "pong");
+    }
+
+    #[test]
+    fn product_events_use_closed_snake_case_contracts() {
+        let payload = ProductEventPayload {
+            event_id: Uuid::new_v4().to_string(),
+            anonymous_session_id: Uuid::new_v4().to_string(),
+            event: ProductEventName::ReadinessBlocked,
+            game_id: "sfiii3".into(),
+            blocked_checks: vec![ReadinessCheckId::GameRuntime],
+        };
+        let value = serde_json::to_value(&payload).expect("serialize product event");
+        assert_eq!(value["event"], "readiness_blocked");
+        assert_eq!(value["blocked_checks"][0], "game_runtime");
+        assert!(value.get("properties").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProductEventPayload>(value).expect("deserialize event"),
+            payload
+        );
     }
 }

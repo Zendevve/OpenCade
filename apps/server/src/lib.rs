@@ -81,6 +81,14 @@ pub fn build_app(state: AppState) -> Router {
             get(routes::alpha_evidence::campaign_summary),
         )
         .route(
+            "/api/v1/telemetry/events",
+            post(routes::telemetry::record_event),
+        )
+        .route(
+            "/api/v1/telemetry/activation",
+            get(routes::telemetry::activation_summary),
+        )
+        .route(
             "/api/v1/rooms/{id}/accept",
             post(routes::rooms::accept_room),
         )

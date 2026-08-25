@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Challenge } from "../lib/api";
 import type { RoomPayload } from "@opencade/protocol";
+import { trackProductEvent } from "../lib/telemetry";
 
 type Props = {
   token: string;
@@ -17,6 +18,7 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
   const [lobbyRoom, setLobbyRoom] = useState<RoomPayload | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const lobbyTracked = useRef(false);
   useEffect(() => {
     let active = true;
     api
@@ -25,6 +27,10 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
         if (active) {
           setLobbyRoom(room);
           setNotice("Ready for challenges");
+          if (!lobbyTracked.current) {
+            lobbyTracked.current = true;
+            void trackProductEvent(token, "lobby_entered", gameId).catch(() => undefined);
+          }
         }
       })
       .catch((error: Error) => {

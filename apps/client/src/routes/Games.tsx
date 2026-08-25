@@ -4,6 +4,8 @@ import { api, type Game } from "../lib/api";
 import { scanGame } from "../lib/native";
 import CampaignDashboard from "../components/CampaignDashboard";
 import MatchReadiness from "../components/MatchReadiness";
+import TelemetryConsent from "../components/TelemetryConsent";
+import { trackProductEvent } from "../lib/telemetry";
 
 type Props = { token: string; onSelect: (gameId: string) => void };
 
@@ -15,6 +17,7 @@ export default function Games({ token, onSelect }: Props) {
   if (selectedGame) {
     return (
       <MatchReadiness
+        token={token}
         game={selectedGame}
         onBack={() => setSelectedGame(null)}
         onContinue={() => onSelect(selectedGame.id)}
@@ -23,8 +26,15 @@ export default function Games({ token, onSelect }: Props) {
   }
   return (
     <>
+      <TelemetryConsent />
       <CampaignDashboard token={token} />
-      <GameCatalog games={games.data.games} onSelect={setSelectedGame} />
+      <GameCatalog
+        games={games.data.games}
+        onSelect={(game) => {
+          setSelectedGame(game);
+          void trackProductEvent(token, "game_selected", game.id).catch(() => undefined);
+        }}
+      />
     </>
   );
 }

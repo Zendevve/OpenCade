@@ -3,14 +3,16 @@ import { useQuery } from "@tanstack/react-query";
 import type { Game } from "../lib/api";
 import { isDesktopRuntime, retroarchPreflight, runNetworkTest } from "../lib/native";
 import { assessMatchReadiness, type ReadinessState } from "../lib/readiness";
+import { trackProductEvent } from "../lib/telemetry";
 
 type Props = {
+  token: string;
   game: Game;
   onBack: () => void;
   onContinue: () => void;
 };
 
-export default function MatchReadiness({ game, onBack, onContinue }: Props) {
+export default function MatchReadiness({ token, game, onBack, onContinue }: Props) {
   const desktop = isDesktopRuntime();
   const [notice, setNotice] = useState("");
   const preflight = useQuery({
@@ -36,8 +38,17 @@ export default function MatchReadiness({ game, onBack, onContinue }: Props) {
   });
   const continueToLobby = () => {
     if (assessment.canContinue) {
+      void trackProductEvent(token, "readiness_completed", game.id).catch(() => undefined);
       onContinue();
       return;
+    }
+    const blockedChecks = assessment.checks
+      .filter((check) => check.required && check.state === "blocked")
+      .map((check) => check.id);
+    if (blockedChecks.length > 0) {
+      void trackProductEvent(token, "readiness_blocked", game.id, blockedChecks).catch(
+        () => undefined
+      );
     }
     setNotice("Resolve the blocked requirements before entering the lobby.");
   };

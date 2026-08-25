@@ -3,6 +3,8 @@ import type {
   Envelope,
   MatchPreflightPayload,
   MatchReport,
+  ActivationSummaryPayload,
+  ProductEventPayload,
   RoomInvitePayload,
   RoomPayload,
   RoomSnapshotPayload,
@@ -218,4 +220,12 @@ export const api = {
       post({ evidence })
     ),
   campaign: (token: string) => request<CampaignSummary>("/api/v1/alpha/campaign", token),
+  recordProductEvent: (token: string, event: ProductEventPayload) =>
+    request<{ accepted: boolean; duplicate: boolean }>(
+      "/api/v1/telemetry/events",
+      token,
+      post(event)
+    ),
+  activationSummary: (token: string) =>
+    request<ActivationSummaryPayload>("/api/v1/telemetry/activation", token),
 };

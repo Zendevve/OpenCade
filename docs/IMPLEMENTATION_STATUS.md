@@ -44,6 +44,9 @@ Updated 2026-08-25.
   uploads and a bounded server-side campaign summary.
 - A reusable match-readiness gate that validates the desktop runtime, control plane, local game
   runtime, native port, and advisory network fallback before a player enters a lobby.
+- Explicitly opt-in product telemetry for the game-selection-to-lobby activation funnel, with a
+  closed Rust/TypeScript event contract, anonymous tab sessions, idempotent ingestion, 90-day raw
+  retention, 30-day aggregates, and small-cohort blocker suppression.
 - A capability-scoped native TCP tunnel primitive with bounded binary frames and a real loopback
   relay integration test. It is separately ticketed from readiness probes and remains disabled as
   an automatic gameplay route pending physical two-host validation.

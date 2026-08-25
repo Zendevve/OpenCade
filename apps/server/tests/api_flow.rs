@@ -73,6 +73,21 @@ async fn current_user_id(app: &Router, token: &str) -> String {
         .to_string()
 }
 
+fn telemetry_event(
+    event_id: uuid::Uuid,
+    session_id: uuid::Uuid,
+    event: &str,
+    blocked_checks: &[&str],
+) -> Value {
+    json!({
+        "event_id": event_id,
+        "anonymous_session_id": session_id,
+        "event": event,
+        "game_id": "sfiii3",
+        "blocked_checks": blocked_checks
+    })
+}
+
 #[sqlx::test]
 async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     sqlx::migrate!("./migrations")
@@ -689,4 +704,196 @@ async fn logout_revokes_the_current_session(pool: PgPool) {
         request(&app, Method::GET, "/api/v1/games", Some(&token), None).await;
     assert_eq!(games_status, StatusCode::UNAUTHORIZED);
     assert_eq!(response.payload["code"], "unauthorized");
+}
+
+#[sqlx::test]
+async fn product_telemetry_is_private_idempotent_bounded_and_aggregated(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let app = build_app(AppState::new(pool.clone(), Config::for_test()));
+    let token = register(&app, "telemetry_player").await;
+    let session_id = uuid::Uuid::new_v4();
+    let selected_id = uuid::Uuid::new_v4();
+
+    let (unauthorized, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        None,
+        Some(telemetry_event(
+            selected_id,
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(unauthorized, StatusCode::UNAUTHORIZED);
+
+    for (event_id, event) in [
+        (selected_id, "game_selected"),
+        (uuid::Uuid::new_v4(), "readiness_completed"),
+        (uuid::Uuid::new_v4(), "lobby_entered"),
+    ] {
+        let (status, accepted) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(telemetry_event(event_id, session_id, event, &[])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(accepted.payload["duplicate"], false);
+    }
+    for _ in 0..2 {
+        let additional_session = uuid::Uuid::new_v4();
+        for event in ["game_selected", "readiness_completed", "lobby_entered"] {
+            let (status, _) = request(
+                &app,
+                Method::POST,
+                "/api/v1/telemetry/events",
+                Some(&token),
+                Some(telemetry_event(
+                    uuid::Uuid::new_v4(),
+                    additional_session,
+                    event,
+                    &[],
+                )),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+    }
+    let (duplicate_status, duplicate) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        Some(&token),
+        Some(telemetry_event(
+            selected_id,
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::OK);
+    assert_eq!(duplicate.payload["duplicate"], true);
+
+    for invalid in [
+        json!({
+            "event_id": "not-a-uuid",
+            "anonymous_session_id": session_id,
+            "event": "game_selected",
+            "game_id": "sfiii3",
+            "blocked_checks": []
+        }),
+        telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "readiness_completed",
+            &["desktop"],
+        ),
+        telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "readiness_blocked",
+            &["network"],
+        ),
+    ] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(invalid),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    for _ in 0..3 {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(telemetry_event(
+                uuid::Uuid::new_v4(),
+                session_id,
+                "readiness_blocked",
+                &["game_runtime"],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let expired_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO product_events
+            (event_id, anonymous_session_id, event_name, game_id, received_at)
+         VALUES ($1, $2, 'game_selected', 'sfiii3', now() - interval '91 days')",
+    )
+    .bind(expired_id)
+    .bind(uuid::Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("insert expired telemetry fixture");
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        Some(&token),
+        Some(telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM product_events WHERE event_id = $1")
+            .bind(expired_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count expired event"),
+        0
+    );
+
+    let (summary_status, summary) = request(
+        &app,
+        Method::GET,
+        "/api/v1/telemetry/activation",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(summary_status, StatusCode::OK);
+    assert_eq!(summary.payload["window_days"], 30);
+    assert_eq!(summary.payload["selected_sessions"], 3);
+    assert_eq!(summary.payload["ready_sessions"], 3);
+    assert_eq!(summary.payload["lobby_sessions"], 3);
+    assert_eq!(summary.payload["readiness_blocked_events"], 3);
+    assert_eq!(summary.payload["selected_to_ready_rate"], 1.0);
+    assert_eq!(summary.payload["selected_to_lobby_rate"], 1.0);
+    assert_eq!(
+        summary.payload["blocked_by_check"][0]["check"],
+        "game_runtime"
+    );
+    assert_eq!(summary.payload["blocked_by_check"][0]["count"], 3);
+
+    let stored_columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'product_events' ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("inspect telemetry schema");
+    assert!(!stored_columns.iter().any(|column| column == "user_id"));
 }

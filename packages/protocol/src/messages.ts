@@ -22,6 +22,11 @@ import type { RoomPayload } from "./generated/RoomPayload.js";
 import type { SessionAnswerPayload } from "./generated/SessionAnswerPayload.js";
 import type { SessionCandidatePayload } from "./generated/SessionCandidatePayload.js";
 import type { SessionOfferPayload } from "./generated/SessionOfferPayload.js";
+import type { ActivationSummaryPayload } from "./generated/ActivationSummaryPayload.js";
+import type { ProductEventName } from "./generated/ProductEventName.js";
+import type { ProductEventPayload } from "./generated/ProductEventPayload.js";
+import type { ReadinessBlockCount } from "./generated/ReadinessBlockCount.js";
+import type { ReadinessCheckId } from "./generated/ReadinessCheckId.js";
 
 export type {
   ChallengePayload,
@@ -48,6 +53,11 @@ export type {
   SessionAnswerPayload,
   SessionCandidatePayload,
   SessionOfferPayload,
+  ActivationSummaryPayload,
+  ProductEventName,
+  ProductEventPayload,
+  ReadinessBlockCount,
+  ReadinessCheckId,
 };
 export type { ChallengeState } from "./generated/ChallengeState.js";
 export type { RoomState } from "./generated/RoomState.js";

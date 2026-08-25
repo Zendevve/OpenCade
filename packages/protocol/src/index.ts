@@ -33,5 +33,10 @@ export type {
   HelloPayload,
   ErrorPayload,
   EnvelopeType,
+  ActivationSummaryPayload,
+  ProductEventName,
+  ProductEventPayload,
+  ReadinessBlockCount,
+  ReadinessCheckId,
 } from "./messages.js";
 export { isKnownEnvelopeType } from "./messages.js";
