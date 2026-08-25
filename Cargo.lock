@@ -1073,6 +1073,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencade-proof-of-match"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "opencade-emulator-sdk",
+ "opencade-networking",
+ "opencade-protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "opencade-protocol"
 version = "0.1.0"
 dependencies = [

@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-08-24.
+Updated 2026-08-25.
 
 ## Implemented and automated
 
@@ -28,10 +28,12 @@ Updated 2026-08-24.
 - A standalone `opencade-relay` service with health/readiness routes and bounded room forwarding,
   plus server-provided STUN hints and 30-sample latency metrics.
 - Desktop network diagnostics backed by real RFC 8489 Binding when a STUN endpoint is configured,
-  with typed RTT, loss, jitter, relay-reachability, and STUN-reachability fields.
-- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, UDP, NAT, relay, two-process,
-  TypeScript, and MSRV
-  checks in CI.
+- A deterministic two-peer `MockAdapter` + `InMemoryPeer` proof-of-match scenario that drives
+  the full 60-frame deterministic transcript and emits canonical redacted `MatchReport`
+  evidence verified by the existing pair verifier (`crates/proof-of-match` + `opencade-proof-of-match`
+  bin + `crates/proof-of-match/tests/proof_of_match.rs`).
+- PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, proof-of-match, UDP, NAT, relay,
+  two-process, TypeScript, and MSRV checks in CI.
 
 ## Deliberately not claimed
 

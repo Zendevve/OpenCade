@@ -37,4 +37,17 @@ First auditable vertical slice: two authenticated users can challenge, negotiate
 
 - FBNeo netplay (`netplay: false` until ADR 0001 bridge), symmetric-NAT TURN allocation and production STUN/TURN deployment, production packaging/signing, friends/chat/rankings/replays, or public MVP release beyond verifiable LAN direct-UDP proof.
 
-[0.1.0]: https://github.com/opencade/opencade/releases/tag/v0.1.0
+### Added
+
+- **Proof-of-Match keystone** — new `crates/proof-of-match` workspace member drives a
+  deterministic two-peer `MockAdapter` + `InMemoryPeer` scenario, exchanges all 60
+  deterministic input frames, and emits canonical redacted `MatchReport` evidence that the
+  existing `opencade-match-verify` pair verifier accepts. Ships with a black-box integration
+  test (`crates/proof-of-match/tests/proof_of_match.rs`) and an `opencade-proof-of-match` CLI
+  bin that prints the host/guest/verification JSON. Closes the Phase 4 exit gate of
+  `docs/NEXT_IMPLEMENTATIONS.md`.
+
+### Verified
+
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo test -p opencade-proof-of-match --all-features --locked` are clean.
+
