@@ -59,3 +59,16 @@ export function matchParticipants(
   if (room.guest_id === localUserId) return { role: "guest", peerUserId: room.host_id };
   return undefined;
 }
+
+export function nativeLanEndpoint(endpoint: string, port = 55_435): string {
+  const parsed = new URL(`udp://${endpoint}`);
+  if (!parsed.hostname || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("Invalid native LAN endpoint");
+  }
+  const host = parsed.hostname.startsWith("[")
+    ? parsed.hostname
+    : parsed.hostname.includes(":")
+      ? `[${parsed.hostname}]`
+      : parsed.hostname;
+  return `${host}:${port}`;
+}

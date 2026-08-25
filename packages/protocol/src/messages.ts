@@ -6,6 +6,10 @@ import type { NatMappingState } from "./generated/NatMappingState.js";
 import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompletedPayload.js";
 import type { MatchReport } from "./generated/MatchReport.js";
 import type { MatchReportClient } from "./generated/MatchReportClient.js";
+import type { MatchReportCompatibility } from "./generated/MatchReportCompatibility.js";
+import type { AlphaEvidenceKind } from "./generated/AlphaEvidenceKind.js";
+import type { AlphaFailureReport } from "./generated/AlphaFailureReport.js";
+import type { AlphaFailureStage } from "./generated/AlphaFailureStage.js";
 import type { MatchReportProbe } from "./generated/MatchReportProbe.js";
 import type { MatchReportRoom } from "./generated/MatchReportRoom.js";
 import type { PresencePayload } from "./generated/PresencePayload.js";
@@ -23,6 +27,10 @@ export type {
   MatchProbeCompletedPayload,
   MatchReport,
   MatchReportClient,
+  MatchReportCompatibility,
+  AlphaEvidenceKind,
+  AlphaFailureReport,
+  AlphaFailureStage,
   MatchReportProbe,
   MatchReportRoom,
   PresencePayload,

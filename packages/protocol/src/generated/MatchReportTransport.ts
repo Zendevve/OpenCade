@@ -3,4 +3,4 @@
 /**
  * Transport values accepted by the v1 alpha evidence contract.
  */
-export type MatchReportTransport = "direct_udp";
+export type MatchReportTransport = "direct_udp" | "relay";

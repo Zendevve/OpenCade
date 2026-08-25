@@ -34,6 +34,9 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
       OPENCADE_ENV: production
       PORT: 8080
+      # Must be reachable by desktop clients; override for remote/LAN deployments.
+      RELAY_URL: ${RELAY_URL:-ws://localhost:8081/relay}
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
     ports:
       - "8080:8080"
     healthcheck:
@@ -52,10 +55,9 @@ services:
     environment:
       RUST_LOG: info
       PORT: 8081
-      RELAY_PORT: 3478
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
     ports:
-      - "3478:3478"
-      - "3478:3478/udp"
+      - "8081:8081"
 volumes:
   pgdata:
     driver: local

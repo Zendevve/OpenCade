@@ -12,6 +12,7 @@ use axum::extract::ws::Message;
 use opencade_protocol::Envelope;
 use serde_json::Value;
 
+use crate::auth_rate_limit::AuthRateLimiter;
 use crate::config::Config;
 
 /// Counters exposed via `GET /metrics` (M7).
@@ -42,6 +43,8 @@ pub struct AppState {
     >,
     /// Prometheus counters for `/metrics`.
     pub metrics: Arc<Metrics>,
+
+    pub auth_rate_limiter: Arc<AuthRateLimiter>,
 }
 
 impl AppState {
@@ -54,6 +57,7 @@ impl AppState {
             config,
             ws_hub: std::sync::Arc::new(dashmap::DashMap::new()),
             metrics: Arc::new(Metrics::default()),
+            auth_rate_limiter: Arc::new(AuthRateLimiter::default()),
         }
     }
 

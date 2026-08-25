@@ -128,6 +128,37 @@ pub enum TransportKind {
     Relay,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransportLease {
+    pub kind: TransportKind,
+    pub local_endpoint: SocketAddr,
+    pub peer_endpoint: SocketAddr,
+}
+
+impl TransportLease {
+    pub fn native_process(
+        kind: TransportKind,
+        local_endpoint: SocketAddr,
+        peer_endpoint: SocketAddr,
+    ) -> Result<Self, AdapterError> {
+        if kind != TransportKind::DirectUdp {
+            return Err(AdapterError::MatchPreparation(
+                "native-process netplay requires an explicitly authorized direct route".into(),
+            ));
+        }
+        if local_endpoint.port() == 0 || peer_endpoint.port() == 0 {
+            return Err(AdapterError::MatchPreparation(
+                "transport lease endpoints require non-zero ports".into(),
+            ));
+        }
+        Ok(Self {
+            kind,
+            local_endpoint,
+            peer_endpoint,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MatchDescriptor {
     pub room_id: String,
@@ -164,23 +195,30 @@ impl MatchDescriptor {
         }
         Ok(())
     }
+
+    pub fn transport_lease(&self) -> Result<TransportLease, AdapterError> {
+        TransportLease::native_process(self.transport, self.local_endpoint, self.peer_endpoint)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdapterCapabilities {
     pub local_play: bool,
-    pub netplay: NetplayReadiness,
+    pub netplay: NetplayMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetplayReadiness {
-    Supported,
+pub enum NetplayMode {
+    /// OpenCade owns the deterministic input-frame data plane.
+    OpenCadeFrames,
+    /// A separately installed emulator owns netplay through a documented process interface.
+    NativeProcess,
     BlockedNoPublicInterface,
 }
 
 impl AdapterCapabilities {
     pub fn supports_netplay(self) -> bool {
-        self.netplay == NetplayReadiness::Supported
+        self.netplay != NetplayMode::BlockedNoPublicInterface
     }
 }
 
@@ -217,6 +255,16 @@ pub trait EmulatorAdapter: Send + Sync {
     /// Implementations MUST NOT use shell injection; pass args directly.
     fn launch(&self, rom_path: &Path) -> Result<Child, AdapterError>;
 
+    /// Launch a netplay match. Adapters with a native process interface override this method.
+    fn launch_match(
+        &self,
+        rom_path: &Path,
+        descriptor: &MatchDescriptor,
+    ) -> Result<Child, AdapterError> {
+        self.prepare_match(descriptor)?;
+        self.launch(rom_path)
+    }
+
     /// Stop a running emulator child.
     fn stop(&self, child: &mut Child) -> Result<(), AdapterError>;
 }
@@ -244,7 +292,7 @@ impl EmulatorAdapter for MockAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities {
             local_play: false,
-            netplay: NetplayReadiness::Supported,
+            netplay: NetplayMode::OpenCadeFrames,
         }
     }
 
@@ -317,6 +365,13 @@ mod tests {
         let mut value = descriptor();
         value.input_delay_frames = 16;
         assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn native_transport_lease_rejects_probe_only_relay() {
+        let mut descriptor = descriptor();
+        descriptor.transport = TransportKind::Relay;
+        assert!(descriptor.transport_lease().is_err());
     }
 
     #[derive(Default)]

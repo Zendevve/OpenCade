@@ -18,10 +18,14 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls"] }
+keyring = "4.1.6"
 opencade-adapter-fbneo = { path = "../../../adapters/fbneo" }
+opencade-adapter-retroarch = { path = "../../../adapters/retroarch" }
 opencade-emulator-sdk = { path = "../../../packages/emulator-sdk" }
 opencade-networking = { path = "../../../packages/networking" }
 opencade-protocol = { path = "../../../packages/protocol" }
+opencade-shared = { path = "../../../packages/shared" }
 uuid = { version = "1.25.0", features = ["v4"] }
 
 [features]

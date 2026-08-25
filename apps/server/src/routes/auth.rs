@@ -91,6 +91,16 @@ pub async fn register(
     if let Some(email) = request.email.as_deref() {
         validate_email(email)?;
     }
+    let rate_key = format!("register:{}", request.username.trim().to_ascii_lowercase());
+    if !state.auth_rate_limiter.check(&rate_key)
+        || !state
+            .auth_rate_limiter
+            .check_with_limit("register-global", 30)
+    {
+        return Err(AppError::RateLimited(
+            "too many account creation attempts; retry in one minute".into(),
+        ));
+    }
 
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = Argon2::default()
@@ -128,6 +138,7 @@ pub async fn register(
         .commit()
         .await
         .map_err(|error| database_error(error, "commit registration"))?;
+    state.auth_rate_limiter.clear(&rate_key);
 
     let user = PublicUser {
         id: user_id.to_string(),
@@ -151,6 +162,16 @@ pub async fn login(
     if request.identifier.trim().is_empty() {
         return Err(AppError::BadRequest("identifier must not be empty".into()));
     }
+    let rate_key = format!("login:{}", request.identifier.trim().to_ascii_lowercase());
+    if !state.auth_rate_limiter.check(&rate_key)
+        || !state
+            .auth_rate_limiter
+            .check_with_limit("login-global", 120)
+    {
+        return Err(AppError::RateLimited(
+            "too many sign-in attempts; retry in one minute".into(),
+        ));
+    }
 
     let row = sqlx::query(
         "SELECT id, username, email, password_hash
@@ -161,8 +182,16 @@ pub async fn login(
     .bind(request.identifier.trim())
     .fetch_optional(&state.pool)
     .await
-    .map_err(|error| database_error(error, "find login user"))?
-    .ok_or_else(|| AppError::Unauthorized("invalid credentials".into()))?;
+    .map_err(|error| database_error(error, "find login user"))?;
+
+    let Some(row) = row else {
+        let salt = SaltString::encode_b64(b"opencade-dummy-salt")
+            .map_err(|_| AppError::Internal("password verifier unavailable".into()))?;
+        Argon2::default()
+            .hash_password(request.password.as_bytes(), &salt)
+            .map_err(|_| AppError::Internal("password verifier unavailable".into()))?;
+        return Err(AppError::Unauthorized("invalid credentials".into()));
+    };
 
     let user_id: Uuid = row
         .try_get("id")
@@ -181,6 +210,7 @@ pub async fn login(
     Argon2::default()
         .verify_password(request.password.as_bytes(), &parsed_hash)
         .map_err(|_| AppError::Unauthorized("invalid credentials".into()))?;
+    state.auth_rate_limiter.clear(&rate_key);
 
     let token = generate_session_token();
     let expires_at = chrono::Utc::now() + chrono::Duration::days(30);

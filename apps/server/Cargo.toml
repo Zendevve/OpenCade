@@ -28,6 +28,7 @@ hex = "0.4.3"
 dashmap = "6.2.1"
 thiserror = "2.0.20"
 opencade-protocol = { path = "../../packages/protocol" }
+opencade-shared = { path = "../../packages/shared" }
 
 [dev-dependencies]
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }

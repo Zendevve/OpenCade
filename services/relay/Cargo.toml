@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-description = "OpenCade relay service (WS TURN-like fallback)"
+description = "OpenCade authenticated WebSocket relay fallback"
 repository = "https://github.com/opencade/opencade"
 
 [dependencies]
@@ -17,4 +17,8 @@ serde_json = "1.0.151"
 dashmap = "6.2.1"
 futures = "0.3.34"
 opencade-protocol = { path = "../../packages/protocol" }
+opencade-shared = { path = "../../packages/shared" }
 uuid = { version = "1.25.0", features = ["v4"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.30.0"

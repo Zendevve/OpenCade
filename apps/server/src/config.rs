@@ -10,9 +10,13 @@ pub enum ConfigError {
     WeakProductionSecret,
     #[error("ALLOWED_ORIGINS must contain at least one origin")]
     MissingAllowedOrigins,
+    #[error("RELAY_URL and RELAY_AUTH_SECRET must be configured together")]
+    IncompleteRelayConfig,
+    #[error("RELAY_AUTH_SECRET must contain at least 32 characters")]
+    WeakRelaySecret,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Config {
     pub database_url: String,
     pub session_secret: String,
@@ -23,6 +27,28 @@ pub struct Config {
     pub stun_host: String,
     pub stun_port: u16,
     pub relay_url: Option<String>,
+    pub relay_secret: Option<String>,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Config")
+            .field("database_url", &"<redacted>")
+            .field("session_secret", &"<redacted>")
+            .field("rust_log", &self.rust_log)
+            .field("port", &self.port)
+            .field("production", &self.production)
+            .field("allowed_origins", &self.allowed_origins)
+            .field("stun_host", &self.stun_host)
+            .field("stun_port", &self.stun_port)
+            .field("relay_url", &self.relay_url)
+            .field(
+                "relay_secret",
+                &self.relay_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 impl Config {
@@ -51,7 +77,10 @@ impl Config {
         }
 
         let allowed_origins = lookup("ALLOWED_ORIGINS")
-            .unwrap_or_else(|| "http://localhost:1420,tauri://localhost".to_string())
+            .unwrap_or_else(|| {
+                "http://localhost:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+                    .to_string()
+            })
             .split(',')
             .map(str::trim)
             .filter(|origin| !origin.is_empty())
@@ -73,6 +102,18 @@ impl Config {
         let relay_url = lookup("RELAY_URL")
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty());
+        let relay_secret = lookup("RELAY_AUTH_SECRET")
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty());
+        if relay_url.is_some() != relay_secret.is_some() {
+            return Err(ConfigError::IncompleteRelayConfig);
+        }
+        if relay_secret
+            .as_ref()
+            .is_some_and(|secret| secret.len() < 32)
+        {
+            return Err(ConfigError::WeakRelaySecret);
+        }
 
         Ok(Self {
             database_url,
@@ -84,6 +125,7 @@ impl Config {
             stun_host,
             stun_port,
             relay_url,
+            relay_secret,
         })
     }
 
@@ -98,6 +140,7 @@ impl Config {
             stun_host: "127.0.0.1".into(),
             stun_port: 3478,
             relay_url: None,
+            relay_secret: None,
         }
     }
 }
@@ -118,6 +161,11 @@ mod tests {
         assert_eq!(config.port, 8080);
         assert!(!config.production);
         assert!(config.allowed_origins.contains(&"tauri://localhost".into()));
+        assert!(
+            config
+                .allowed_origins
+                .contains(&"https://tauri.localhost".into())
+        );
         assert_eq!(config.stun_host, "stun.opencade.local");
         assert_eq!(config.stun_port, 3478);
         assert_eq!(config.relay_url, None);
@@ -178,6 +226,10 @@ mod tests {
             ("STUN_HOST", "stun.example.com"),
             ("STUN_PORT", "3479"),
             ("RELAY_URL", "wss://relay.example.com/relay"),
+            (
+                "RELAY_AUTH_SECRET",
+                "relay-test-secret-at-least-32-bytes-long",
+            ),
         ])
         .expect("stun and relay should parse");
         assert_eq!(config.stun_host, "stun.example.com");
@@ -192,9 +244,26 @@ mod tests {
     fn relay_url_absent_when_not_set_or_empty() {
         let config = load_config(&[]).expect("defaults");
         assert_eq!(config.relay_url, None);
+        assert_eq!(config.relay_secret, None);
         let config = load_config(&[("RELAY_URL", "")]).expect("empty relay should be None");
         assert_eq!(config.relay_url, None);
         let config = load_config(&[("RELAY_URL", "   ")]).expect("whitespace relay should be None");
         assert_eq!(config.relay_url, None);
+        assert_eq!(config.relay_secret, None);
+    }
+
+    #[test]
+    fn rejects_incomplete_or_weak_relay_configuration() {
+        assert_eq!(
+            load_config(&[("RELAY_URL", "wss://relay.example.com/relay")]),
+            Err(ConfigError::IncompleteRelayConfig)
+        );
+        assert_eq!(
+            load_config(&[
+                ("RELAY_URL", "wss://relay.example.com/relay"),
+                ("RELAY_AUTH_SECRET", "weak"),
+            ]),
+            Err(ConfigError::WeakRelaySecret)
+        );
     }
 }

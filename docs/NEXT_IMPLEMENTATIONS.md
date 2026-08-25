@@ -13,6 +13,29 @@
 > the gate; cone/symmetric classification and relay fallback remain deferred. The sequencing below
 > is retained as the original pre-evidence plan.
 
+> **Proof-of-Play update (2026-08-24):** ADR 0003, the user-supplied RetroArch/FBNeo-core
+> native-process adapter, compatibility fingerprints, signed relay tickets, bounded relay fallback,
+> runtime-configurable Windows alpha executable, and automated tests are implemented. The next gate
+> is execution, not another subsystem: run the physical two-Windows campaign in
+> `docs/alpha/RETROARCH_TEST.md` and `docs/alpha/LAN_TEST.md` without fabricating results.
+
+> **Campaign-kit update (2026-08-24):** CI now produces a flat, checksummed Windows alpha kit. Its
+> shared PowerShell entrypoint packages and verifies the artifact in CI, then verifies API
+> health/readiness, the user-supplied RetroArch layout, optional STUN syntax, and runtime launch
+> configuration on tester machines. The remaining gate is still physical execution and paired
+> report collection.
+
+> **Evidence-integrity update (2026-08-24):** abandoned rooms now export a distinct redacted
+> failure-evidence record with an enum stage and validated stable code. Campaign aggregation counts
+> unique successful or failed room IDs, separates direct/relay rows, and rejects conflicting
+> success/failure evidence. This removes survivorship bias from the 8-of-10 gate.
+
+> **Native-lifecycle hardening (2026-08-24):** opportunities scoring above 20 are implemented in
+> ADR 0004: server-derived one-use launch authorization, two-participant launch/exit state,
+> supervised processes, a deterministic client coordinator, strict compatibility evidence,
+> authentication throttling/timing equalization, secure desktop token storage, and a narrowed CSP.
+> Relay and reflexive UDP probes are deliberately readiness-only for the RetroArch TCP alpha.
+
 ## Recommendation: build the executable Proof of Match
 
 The next implementation should be one narrow, deterministic vertical slice:

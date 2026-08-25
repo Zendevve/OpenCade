@@ -1,4 +1,4 @@
-use super::{InputFrame, MAX_INPUT_BYTES, TransportError, UdpPeer};
+use super::{InputFrame, MAX_INPUT_BYTES, RelayPeer, TransportError, UdpPeer};
 use opencade_emulator_sdk::{MatchDescriptor, PeerRole, TransportKind};
 use opencade_protocol::{MatchCandidateKind, NatMappingState};
 use serde::{Deserialize, Serialize};
@@ -45,9 +45,12 @@ impl MatchProbeConfig {
         descriptor
             .validate()
             .map_err(|error| TransportError::InvalidConfiguration(error.to_string()))?;
-        if descriptor.transport != TransportKind::DirectUdp {
+        if !matches!(
+            descriptor.transport,
+            TransportKind::DirectUdp | TransportKind::Relay
+        ) {
             return Err(TransportError::InvalidConfiguration(
-                "match probe requires direct_udp transport".into(),
+                "match probe requires direct_udp or relay transport".into(),
             ));
         }
         let session_key = session_key.into();
@@ -97,6 +100,45 @@ pub struct MatchProbeReport {
 /// causes the matching local frame to be retransmitted, allowing either process to start first.
 pub async fn run_match_probe(
     peer: &UdpPeer,
+    config: &MatchProbeConfig,
+) -> Result<MatchProbeReport, TransportError> {
+    run_match_probe_with(peer, config).await
+}
+
+pub async fn run_relay_match_probe(
+    peer: &RelayPeer,
+    config: &MatchProbeConfig,
+) -> Result<MatchProbeReport, TransportError> {
+    run_match_probe_with(peer, config).await
+}
+
+trait ProbeTransport {
+    async fn send_packet(&self, packet: &ProbePacket) -> Result<(), TransportError>;
+    async fn receive_packet(&self) -> Result<ProbePacket, TransportError>;
+}
+
+impl ProbeTransport for UdpPeer {
+    async fn send_packet(&self, packet: &ProbePacket) -> Result<(), TransportError> {
+        self.send_packet(packet).await
+    }
+
+    async fn receive_packet(&self) -> Result<ProbePacket, TransportError> {
+        self.receive_packet().await
+    }
+}
+
+impl ProbeTransport for RelayPeer {
+    async fn send_packet(&self, packet: &ProbePacket) -> Result<(), TransportError> {
+        self.send_packet(packet).await
+    }
+
+    async fn receive_packet(&self) -> Result<ProbePacket, TransportError> {
+        self.receive_packet().await
+    }
+}
+
+async fn run_match_probe_with<T: ProbeTransport>(
+    peer: &T,
     config: &MatchProbeConfig,
 ) -> Result<MatchProbeReport, TransportError> {
     let started = Instant::now();
@@ -181,8 +223,8 @@ pub async fn run_match_probe(
     })
 }
 
-async fn send_probe_frame(
-    peer: &UdpPeer,
+async fn send_probe_frame<T: ProbeTransport>(
+    peer: &T,
     config: &MatchProbeConfig,
     frame: InputFrame,
 ) -> Result<(), TransportError> {
@@ -224,8 +266,8 @@ fn validated_remote_frame(
     Ok(Some(frame))
 }
 
-async fn linger_for_peer(
-    peer: &UdpPeer,
+async fn linger_for_peer<T: ProbeTransport>(
+    peer: &T,
     config: &MatchProbeConfig,
     frames_sent: &mut u64,
 ) -> Result<(), TransportError> {

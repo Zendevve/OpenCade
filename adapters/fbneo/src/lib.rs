@@ -1,5 +1,5 @@
 use opencade_emulator_sdk::{
-    AdapterCapabilities, AdapterError, DetectedEmulator, EmulatorAdapter, NetplayReadiness,
+    AdapterCapabilities, AdapterError, DetectedEmulator, EmulatorAdapter, NetplayMode,
     StdProcessLauncher, ValidationReport, spawn_validated,
 };
 use std::path::{Path, PathBuf};
@@ -45,7 +45,7 @@ impl EmulatorAdapter for FbneoAdapter {
     fn capabilities(&self) -> AdapterCapabilities {
         AdapterCapabilities {
             local_play: true,
-            netplay: NetplayReadiness::BlockedNoPublicInterface,
+            netplay: NetplayMode::BlockedNoPublicInterface,
         }
     }
 
@@ -158,7 +158,7 @@ mod tests {
         );
         assert_eq!(
             adapter.capabilities().netplay,
-            NetplayReadiness::BlockedNoPublicInterface
+            NetplayMode::BlockedNoPublicInterface
         );
         assert!(!adapter.capabilities().supports_netplay());
         std::fs::remove_dir_all(root).expect("remove fixture");

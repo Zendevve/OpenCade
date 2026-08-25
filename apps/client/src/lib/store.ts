@@ -1,33 +1,35 @@
 import { create } from "zustand";
+import { clearStoredSessionToken, loadSessionToken, storeSessionToken } from "./native";
 
 export type SessionUser = { id: string; username: string; email?: string | null };
 
 type SessionState = {
   token: string | null;
   user: SessionUser | null;
+  hydrated: boolean;
+  hydrate: () => Promise<void>;
   setSession: (token: string, user: SessionUser) => void;
   clearSession: () => void;
 };
 
-const TOKEN_KEY = "opencade.session_token";
-
-function storedToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
 export const useSessionStore = create<SessionState>((set) => ({
-  token: storedToken(),
+  token: null,
   user: null,
+  hydrated: false,
+  hydrate: async () => {
+    try {
+      const token = await loadSessionToken();
+      set({ token, hydrated: true });
+    } catch {
+      set({ token: null, user: null, hydrated: true });
+    }
+  },
   setSession: (token, user) => {
-    localStorage.setItem(TOKEN_KEY, token);
     set({ token, user });
+    void storeSessionToken(token);
   },
   clearSession: () => {
-    localStorage.removeItem(TOKEN_KEY);
     set({ token: null, user: null });
+    void clearStoredSessionToken();
   },
 }));

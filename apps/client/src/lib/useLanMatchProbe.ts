@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import type {
+  AlphaFailureStage,
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
+  MatchReportTransport,
   RoomPayload,
 } from "@opencade/protocol";
 import { api } from "./api";
@@ -10,6 +11,7 @@ import { matchParticipants } from "./match";
 import {
   cancelMatchProbe,
   reserveMatchProbe,
+  runRelayMatchProbe,
   runReservedMatchProbe,
   type MatchEndpointCandidate,
   type MatchProbeReport,
@@ -27,6 +29,12 @@ type LanMatchProbeOptions = {
   onRetry: () => void;
 };
 
+export type ProbeFailureEvidence = {
+  stage: AlphaFailureStage;
+  error_code: string;
+  transport?: MatchReportTransport;
+};
+
 export function useLanMatchProbe({
   token,
   userId,
@@ -37,14 +45,13 @@ export function useLanMatchProbe({
   peerCompletion,
   onRetry,
 }: LanMatchProbeOptions) {
-  const queryClient = useQueryClient();
   const [localEndpoint, setLocalEndpoint] = useState<MatchEndpointCandidate | null>(null);
   const [probeReport, setProbeReport] = useState<MatchProbeReport | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
+  const [probeFailure, setProbeFailure] = useState<ProbeFailureEvidence | null>(null);
   const [candidateRelayed, setCandidateRelayed] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const probeStarted = useRef(false);
-  const roomAdvanced = useRef(false);
   const resetStarted = useRef(false);
   const probeAttempt = useRef(0);
   const preparationGeneration = useRef(0);
@@ -92,6 +99,10 @@ export function useLanMatchProbe({
       } catch (error) {
         if (!cancelled && probeAttempt.current === attempt) {
           setProbeError(errorMessage(error, "Failed to reserve LAN probe"));
+          setProbeFailure({
+            stage: "endpoint_reservation",
+            error_code: "endpoint_reservation_failed",
+          });
         }
       }
     };
@@ -121,17 +132,63 @@ export function useLanMatchProbe({
     let cancelled = false;
     const run = async () => {
       try {
-        const report = await runReservedMatchProbe({
-          room_id: roomId,
-          game_id: room.game_id,
-          local_user_id: userId,
-          peer_user_id: participants.peerUserId,
-          role: participants.role,
-          peer_endpoint: peerEndpoint.endpoint,
-          peer_reflexive_endpoint: peerEndpoint.reflexive_endpoint ?? undefined,
-          peer_nonce: peerEndpoint.nonce,
-        });
+        let report: MatchProbeReport;
+        try {
+          report = await runReservedMatchProbe({
+            room_id: roomId,
+            game_id: room.game_id,
+            local_user_id: userId,
+            peer_user_id: participants.peerUserId,
+            role: participants.role,
+            peer_endpoint: peerEndpoint.endpoint,
+            peer_reflexive_endpoint: peerEndpoint.reflexive_endpoint ?? undefined,
+            peer_nonce: peerEndpoint.nonce,
+          });
+        } catch (directError) {
+          if (!cancelled && probeAttempt.current === attempt) {
+            setProbeError(
+              `${errorMessage(directError, "Direct UDP failed")}; trying authenticated relay`
+            );
+          }
+          let relay: Awaited<ReturnType<typeof api.relayTicket>>;
+          try {
+            relay = await api.relayTicket(token, roomId);
+          } catch (error) {
+            if (!cancelled && probeAttempt.current === attempt) {
+              setProbeFailure({
+                stage: "relay_ticket",
+                error_code: "relay_ticket_failed",
+                transport: "relay",
+              });
+            }
+            throw error;
+          }
+          try {
+            report = await runRelayMatchProbe({
+              relay_url: relay.relay_url,
+              ticket: relay.ticket,
+              room_id: roomId,
+              game_id: room.game_id,
+              local_user_id: userId,
+              peer_user_id: participants.peerUserId,
+              role: participants.role,
+              local_nonce: localEndpoint.nonce,
+              peer_nonce: peerEndpoint.nonce,
+            });
+          } catch (error) {
+            if (!cancelled && probeAttempt.current === attempt) {
+              setProbeFailure({
+                stage: "relay",
+                error_code: "relay_probe_failed",
+                transport: "relay",
+              });
+            }
+            throw error;
+          }
+        }
         if (cancelled || probeAttempt.current !== attempt) return;
+        setProbeFailure(null);
+        setProbeError(null);
         setProbeReport(report);
         await relayUntilDelivered(
           socket,
@@ -156,32 +213,7 @@ export function useLanMatchProbe({
     return () => {
       cancelled = true;
     };
-  }, [candidateRelayed, localEndpoint, peerEndpoint, room, roomId, socket, userId]);
-
-  useEffect(() => {
-    if (!probeReport || !peerCompletion || !room || roomAdvanced.current) return;
-    const participants = matchParticipants(room, userId);
-    if (!participants || participants.role !== "host") return;
-    if (
-      peerCompletion.frames_received !== probeReport.frames_received ||
-      peerCompletion.transcript_checksum !== probeReport.transcript_checksum
-    ) {
-      setProbeError("Peer transcript does not match the local LAN probe");
-      return;
-    }
-    roomAdvanced.current = true;
-    const advance = async () => {
-      try {
-        await api.startRoom(token, roomId);
-        await api.finishRoom(token, roomId);
-        await queryClient.invalidateQueries({ queryKey: ["room", roomId] });
-      } catch (error) {
-        roomAdvanced.current = false;
-        setProbeError(errorMessage(error, "Failed to finish match room"));
-      }
-    };
-    void advance();
-  }, [peerCompletion, probeReport, queryClient, room, roomId, token, userId]);
+  }, [candidateRelayed, localEndpoint, peerEndpoint, room, roomId, socket, token, userId]);
 
   const retry = async () => {
     if (resetStarted.current) return;
@@ -192,8 +224,8 @@ export function useLanMatchProbe({
       await reservationInFlight.current?.catch(() => undefined);
       await cancelMatchProbe(roomId);
       probeStarted.current = false;
-      roomAdvanced.current = false;
       setProbeError(null);
+      setProbeFailure(null);
       setProbeReport(null);
       setCandidateRelayed(false);
       setLocalEndpoint(null);
@@ -206,7 +238,7 @@ export function useLanMatchProbe({
     }
   };
 
-  return { localEndpoint, probeReport, probeError, isResetting, retry };
+  return { localEndpoint, probeReport, probeError, probeFailure, isResetting, retry };
 }
 
 async function relayUntilDelivered(

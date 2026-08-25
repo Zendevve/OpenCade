@@ -1,6 +1,7 @@
 # opencade-relay
 
-TURN-like WebSocket relay fallback for OpenCade.
+Authenticated WebSocket readiness-probe relay fallback for OpenCade. It is not a TURN server and
+does not transparently relay RetroArch's native netplay connection.
 
 ## Run
 
@@ -8,21 +9,22 @@ TURN-like WebSocket relay fallback for OpenCade.
 cargo run -p opencade-relay
 # env:
 #   PORT=8081            # HTTP/health port
-#   RELAY_PORT=3478      # TURN port (exposed via health)
 #   RUST_LOG=info
-#   RELAY_HOST=           # optional
+#   RELAY_AUTH_SECRET=    # required; same 32-byte-or-longer secret as opencade-server
 #   OPENCADE_ENV=production  # json logs if production, else pretty
 ```
 
 ## Endpoints
 
-- `GET /health` → `{status:"ok", version:"0.1.0", relay_port}`
+- `GET /health` → `{status:"ok", version:"0.1.0"}`
 - `GET /ready` → `{status:"ok"}` (DB-less)
-- `WS /relay?room_id=<id>` → opaque frame relay between peers in same `room_id` bucket; validates `opencade-protocol` Envelope version if present, forwards otherwise.
+- `WS /relay?room_id=...&user_id=...&expires_at=...&signature=...` → accepts a short-lived ticket
+  issued by `POST /api/v1/rooms/:id/relay-ticket`; fixes the socket to that room, permits at most two
+  users, and forwards bounded binary frames or valid room-scoped protocol envelopes.
 
 ## Docker
 
 ```bash
 docker compose up relay
-# exposes 8081 (health) and 3478/udp+tcp
+# exposes 8081 for health and authenticated WebSocket relay traffic
 ```
