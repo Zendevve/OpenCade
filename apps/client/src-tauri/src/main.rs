@@ -7,10 +7,12 @@ fn main() {
     tauri::Builder::default()
         .manage(commands::process::ProcessState::default())
         .manage(commands::match_probe::MatchProbeState::default())
+        .manage(commands::tunnel::NativeTunnelState::default())
         .invoke_handler(tauri::generate_handler![
             commands::fs::scan_game,
             commands::process::launch_game,
             commands::process::launch_retroarch_match,
+            commands::process::retroarch_preflight,
             commands::process::stop_game,
             commands::diag::network_test,
             commands::match_probe::reserve_match_probe,
@@ -21,6 +23,8 @@ fn main() {
             commands::session::store_session_token,
             commands::session::load_session_token,
             commands::session::clear_session_token,
+            commands::tunnel::start_native_tcp_tunnel,
+            commands::tunnel::stop_native_tcp_tunnel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

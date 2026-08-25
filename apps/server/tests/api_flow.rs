@@ -474,6 +474,199 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let mut config = Config::for_test();
+    config.relay_url = Some("wss://relay.example/relay".into());
+    config.relay_secret = Some("integration-relay-secret-at-least-32-bytes".into());
+    let app = build_app(AppState::new(pool, config));
+    let host_token = register(&app, "campaign_host").await;
+    let guest_token = register(&app, "campaign_guest").await;
+    let observer_token = register(&app, "campaign_observer").await;
+
+    let (_, room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&host_token),
+        Some(json!({ "game_id": "sfiii3" })),
+    )
+    .await;
+    let room_id = room.payload["id"].as_str().expect("room id");
+    let (invite_status, invite) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/invite"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(invite_status, StatusCode::CREATED);
+    let code = invite.payload["code"].as_str().expect("invite code");
+    assert_eq!(code.len(), 10);
+    let (join_status, joined) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&guest_token),
+        Some(json!({ "code": code.to_ascii_lowercase() })),
+    )
+    .await;
+    assert_eq!(join_status, StatusCode::OK);
+    assert_eq!(joined.payload["state"], "connecting");
+    let (replay_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&observer_token),
+        Some(json!({ "code": code })),
+    )
+    .await;
+    assert_eq!(replay_status, StatusCode::NOT_FOUND);
+
+    let compatibility = json!({
+        "adapter": "retroarch_fbneo",
+        "emulator_version": "1.22.0",
+        "executable_sha256": "a".repeat(64),
+        "core_sha256": "b".repeat(64),
+        "content_sha256": "c".repeat(64)
+    });
+    for token in [&host_token, &guest_token] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            &format!("/api/v1/rooms/{room_id}/preflight"),
+            Some(token),
+            Some(json!({
+                "room_id": room_id,
+                "compatibility": compatibility,
+                "native_port_available": true
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    for token in [&host_token, &guest_token] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            &format!("/api/v1/rooms/{room_id}/ready"),
+            Some(token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (snapshot_status, snapshot) = request(
+        &app,
+        Method::GET,
+        &format!("/api/v1/rooms/{room_id}/snapshot"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(snapshot_status, StatusCode::OK);
+    assert_eq!(snapshot.payload["preflight_count"], 2);
+    assert_eq!(snapshot.payload["compatibility_matched"], true);
+    assert_eq!(snapshot.payload["barrier"]["ready_count"], 2);
+    assert!(snapshot.payload["barrier"]["launch_at"].is_string());
+    let launch_at = snapshot.payload["barrier"]["launch_at"].clone();
+    let (duplicate_ready_status, duplicate_ready) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/ready"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(duplicate_ready_status, StatusCode::OK);
+    assert_eq!(duplicate_ready.payload["barrier"]["launch_at"], launch_at);
+
+    let (tunnel_status, tunnel) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/native-tunnel-ticket"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(tunnel_status, StatusCode::OK);
+    assert_eq!(tunnel.payload["ticket"]["capability"], "native_tcp_tunnel");
+
+    let failure = json!({
+        "schema_version": 1,
+        "kind": "attempt_failure",
+        "exported_at": chrono::Utc::now(),
+        "room": { "id": room_id, "game_id": "sfiii3", "state": "connecting" },
+        "role": "host",
+        "stage": "direct_udp",
+        "error_code": "direct_udp_timeout",
+        "transport": "direct_udp",
+        "client": { "platform": "macos", "user_agent": "integration-test" }
+    });
+    let (evidence_status, evidence) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": failure.clone() })),
+    )
+    .await;
+    assert_eq!(evidence_status, StatusCode::CREATED);
+    assert_eq!(evidence.payload["duplicate"], false);
+    let (duplicate_status, duplicate) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": failure.clone() })),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::OK);
+    assert_eq!(duplicate.payload["duplicate"], true);
+    let mut conflicting_failure = failure;
+    conflicting_failure["error_code"] = json!("different_failure");
+    let (conflict_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": conflicting_failure })),
+    )
+    .await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+
+    let (privacy_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({
+            "evidence": {
+                "kind": "attempt_failure",
+                "endpoint": "192.168.1.20:55435"
+            }
+        })),
+    )
+    .await;
+    assert_eq!(privacy_status, StatusCode::BAD_REQUEST);
+    let (campaign_status, campaign) = request(
+        &app,
+        Method::GET,
+        "/api/v1/alpha/campaign",
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(campaign_status, StatusCode::OK);
+    assert_eq!(campaign.payload["attempts"], 1);
+    assert_eq!(campaign.payload["failed"], 1);
+}
+
+#[sqlx::test]
 async fn logout_revokes_the_current_session(pool: PgPool) {
     sqlx::migrate!("./migrations")
         .run(&pool)

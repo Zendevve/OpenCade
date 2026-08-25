@@ -88,6 +88,42 @@ pub struct RetroarchMatchLaunch {
     fingerprint: CompatibilityFingerprint,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RetroarchPreflight {
+    adapter: &'static str,
+    emulator_version: Option<String>,
+    executable_sha256: String,
+    core_sha256: String,
+    content_sha256: String,
+    native_port_available: bool,
+}
+
+#[tauri::command]
+pub async fn retroarch_preflight(
+    app: tauri::AppHandle,
+    game_id: String,
+) -> Result<RetroarchPreflight, String> {
+    validate_game_id(&game_id)?;
+    let root = retroarch_root(&app)?;
+    let adapter = RetroarchAdapter::new(&root);
+    let rom = root.join("ROMs").join(format!("{game_id}.zip"));
+    let fingerprint = tokio::task::spawn_blocking(move || adapter.fingerprint(&rom))
+        .await
+        .map_err(|_| "compatibility preflight worker failed".to_string())?
+        .map_err(|error| error.to_string())?;
+    let native_port_available =
+        ensure_native_port_available("0.0.0.0:55435".parse().expect("static socket address"))
+            .is_ok();
+    Ok(RetroarchPreflight {
+        adapter: "retroarch_fbneo",
+        emulator_version: fingerprint.retroarch_version,
+        executable_sha256: fingerprint.executable_sha256,
+        core_sha256: fingerprint.core_sha256,
+        content_sha256: fingerprint.content_sha256,
+        native_port_available,
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct EmulatorExitEvent {
     pid: u32,

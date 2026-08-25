@@ -56,6 +56,31 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/v1/rooms", post(routes::rooms::create_room))
         .route("/api/v1/rooms/{id}", get(routes::rooms::get_room))
         .route(
+            "/api/v1/rooms/{id}/invite",
+            post(routes::alpha::create_invite),
+        )
+        .route("/api/v1/invites/join", post(routes::alpha::join_invite))
+        .route(
+            "/api/v1/rooms/{id}/preflight",
+            post(routes::alpha::submit_preflight),
+        )
+        .route(
+            "/api/v1/rooms/{id}/snapshot",
+            get(routes::alpha::room_snapshot),
+        )
+        .route(
+            "/api/v1/rooms/{id}/ready",
+            post(routes::alpha::ready_to_launch),
+        )
+        .route(
+            "/api/v1/alpha/evidence",
+            post(routes::alpha_evidence::submit_evidence),
+        )
+        .route(
+            "/api/v1/alpha/campaign",
+            get(routes::alpha_evidence::campaign_summary),
+        )
+        .route(
             "/api/v1/rooms/{id}/accept",
             post(routes::rooms::accept_room),
         )
@@ -71,6 +96,10 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/api/v1/rooms/{id}/relay-ticket",
             post(routes::rooms::relay_ticket),
+        )
+        .route(
+            "/api/v1/rooms/{id}/native-tunnel-ticket",
+            post(routes::rooms::native_tunnel_ticket),
         )
         .route(
             "/api/v1/rooms/{id}/launch-grant",

@@ -302,9 +302,11 @@ Consequences:
 - MVP has **three active containers**: `db` (`postgres:16-alpine`), `opencade-server` on `8080`,
   and `opencade-relay` on `8081`; peers still prefer direct UDP.
 - No Redis, no separate signaling service, and no message queue in MVP. Presence remains in the
-  control plane; bounded readiness frames alone can use the relay fallback.
-- The relay accepts only short-lived room-member tickets issued by the control plane, limits rooms
-  to two users and bounded frames, and does not relay RetroArch's native netplay socket.
+  control plane. Readiness frames use the probe capability; an isolated, bounded native TCP tunnel
+  capability exists but remains route-policy gated pending physical validation.
+- The relay accepts only short-lived room-member tickets issued by the control plane and limits
+  rooms to two users and bounded frames. Capability-scoped tickets keep readiness probes isolated
+  from the experimental native TCP tunnel described in ADR 0005.
 
 ---
 
@@ -657,8 +659,9 @@ fixes the connection to the signed room/user, permits at most two distinct users
 64-message queues, and rejects frames above 64 KiB. Text frames must be valid versioned envelopes
 whose payload room matches the signed room; bounded binary probe frames remain opaque.
 
-This relay carries OpenCade readiness frames. It is not TURN and does not relay RetroArch's native
-TCP netplay connection.
+Probe tickets carry only OpenCade readiness frames. Native-tunnel tickets use a separate signed
+capability and bounded TCP-over-WebSocket framing; the match coordinator does not select that route
+until ADR 0005's physical validation gate passes. The relay is not TURN.
 
 ### 10.4 Latency — RTT / loss / jitter
 

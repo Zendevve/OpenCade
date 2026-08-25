@@ -1,6 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, type Game } from "../lib/api";
 import { scanGame } from "../lib/native";
+import CampaignDashboard from "../components/CampaignDashboard";
 
 type Props = { token: string; onSelect: (gameId: string) => void };
 
@@ -8,7 +9,12 @@ export default function Games({ token, onSelect }: Props) {
   const games = useQuery({ queryKey: ["games"], queryFn: () => api.games(token) });
   if (games.isPending) return <StatusCard title="Loading games" detail="Reading server catalog…" />;
   if (games.isError) return <StatusCard title="Games unavailable" detail={games.error.message} />;
-  return <GameCatalog games={games.data.games} onSelect={onSelect} />;
+  return (
+    <>
+      <CampaignDashboard token={token} />
+      <GameCatalog games={games.data.games} onSelect={onSelect} />
+    </>
+  );
 }
 
 function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (gameId: string) => void }) {

@@ -270,6 +270,56 @@ pub struct MatchReportCompatibility {
     pub content_sha256: String,
 }
 
+/// Native route capabilities are explicit: a readiness probe never implies emulator traffic.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/NativeRouteCapability.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum NativeRouteCapability {
+    DirectLan,
+    TcpTunnel,
+}
+
+/// Privacy-safe compatibility handshake performed before either emulator is launched.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchPreflightPayload.ts")]
+pub struct MatchPreflightPayload {
+    pub room_id: String,
+    pub compatibility: MatchReportCompatibility,
+    pub native_port_available: bool,
+}
+
+/// Server-authoritative launch barrier shared by both room participants.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/LaunchBarrierPayload.ts")]
+pub struct LaunchBarrierPayload {
+    pub room_id: String,
+    pub ready_count: u8,
+    pub required_count: u8,
+    pub launch_at: Option<DateTime<Utc>>,
+}
+
+/// Durable room snapshot used after initial connection and every reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/RoomSnapshotPayload.ts")]
+pub struct RoomSnapshotPayload {
+    pub room: RoomPayload,
+    #[ts(type = "number")]
+    pub revision: i64,
+    pub preflight_count: u8,
+    pub compatibility_matched: bool,
+    pub barrier: LaunchBarrierPayload,
+    pub route: NativeRouteCapability,
+}
+
+/// Short-lived room invite. Only the creator receives the secret code.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/RoomInvitePayload.ts")]
+pub struct RoomInvitePayload {
+    pub room_id: String,
+    pub code: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 /// Stable stages for privacy-minimized evidence from an abandoned alpha attempt.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[ts(export, export_to = "../src/generated/AlphaFailureStage.ts")]

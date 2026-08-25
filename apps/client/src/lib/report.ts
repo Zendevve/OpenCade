@@ -43,7 +43,17 @@ export function downloadMatchReport(
   probe: MatchProbeReport,
   playable?: RetroarchMatchLaunch
 ): void {
-  const compatibility: MatchReportCompatibility | undefined = playable
+  const compatibility = compatibilityFromLaunch(playable);
+  downloadJson(
+    `opencade-match-${room.id.slice(0, 8)}.json`,
+    buildMatchReport(room, probe, new Date(), compatibility)
+  );
+}
+
+export function compatibilityFromLaunch(
+  playable?: RetroarchMatchLaunch
+): MatchReportCompatibility | undefined {
+  return playable
     ? {
         adapter: playable.adapter,
         emulator_version: playable.fingerprint.retroarch_version ?? null,
@@ -52,10 +62,6 @@ export function downloadMatchReport(
         content_sha256: playable.fingerprint.content_sha256,
       }
     : undefined;
-  downloadJson(
-    `opencade-match-${room.id.slice(0, 8)}.json`,
-    buildMatchReport(room, probe, new Date(), compatibility)
-  );
 }
 
 export type AlphaFailureEvidence = {

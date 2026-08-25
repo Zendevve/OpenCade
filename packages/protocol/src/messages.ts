@@ -7,6 +7,11 @@ import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompleted
 import type { MatchReport } from "./generated/MatchReport.js";
 import type { MatchReportClient } from "./generated/MatchReportClient.js";
 import type { MatchReportCompatibility } from "./generated/MatchReportCompatibility.js";
+import type { MatchPreflightPayload } from "./generated/MatchPreflightPayload.js";
+import type { LaunchBarrierPayload } from "./generated/LaunchBarrierPayload.js";
+import type { NativeRouteCapability } from "./generated/NativeRouteCapability.js";
+import type { RoomInvitePayload } from "./generated/RoomInvitePayload.js";
+import type { RoomSnapshotPayload } from "./generated/RoomSnapshotPayload.js";
 import type { AlphaEvidenceKind } from "./generated/AlphaEvidenceKind.js";
 import type { AlphaFailureReport } from "./generated/AlphaFailureReport.js";
 import type { AlphaFailureStage } from "./generated/AlphaFailureStage.js";
@@ -28,6 +33,11 @@ export type {
   MatchReport,
   MatchReportClient,
   MatchReportCompatibility,
+  MatchPreflightPayload,
+  LaunchBarrierPayload,
+  NativeRouteCapability,
+  RoomInvitePayload,
+  RoomSnapshotPayload,
   AlphaEvidenceKind,
   AlphaFailureReport,
   AlphaFailureStage,
@@ -71,6 +81,7 @@ export type EnvelopeType =
   | "match.probe.completed"
   | "match.probe.completed.relayed"
   | "room.state"
+  | "room.snapshot"
   | "connection.hello"
   | "error"
   | "ping"
@@ -93,6 +104,7 @@ const KNOWN_ENVELOPE_TYPES: ReadonlySet<string> = new Set<EnvelopeType>([
   "match.probe.completed",
   "match.probe.completed.relayed",
   "room.state",
+  "room.snapshot",
   "connection.hello",
   "error",
   "ping",

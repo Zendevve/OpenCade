@@ -1,16 +1,17 @@
-import { useEffect, useReducer } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useReducer, useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
   RoomPayload,
 } from "@opencade/protocol";
 import { api, getApiBase } from "./api";
-import { matchParticipants, nativeLanEndpoint } from "./match";
+import { matchParticipants, selectNativeRoute } from "./match";
 import { initialMatchCoordinatorState, transitionMatchCoordinator } from "./matchCoordinator";
 import {
   launchRetroarchMatch,
   onEmulatorExit,
+  retroarchPreflight,
   stopGame,
   type MatchEndpointCandidate,
   type MatchProbeReport,
@@ -38,11 +39,60 @@ export function usePlayableMatch({
   peerCompletion,
 }: PlayableMatchOptions) {
   const queryClient = useQueryClient();
+  const preflightStarted = useRef(false);
+  const readyStarted = useRef(false);
   const [coordinator, dispatch] = useReducer(
     transitionMatchCoordinator,
     initialMatchCoordinatorState
   );
   const participants = room ? matchParticipants(room, userId) : undefined;
+  const snapshot = useQuery({
+    queryKey: ["room-snapshot", roomId],
+    queryFn: () => api.roomSnapshot(token, roomId),
+    enabled: Boolean(room && participants),
+    staleTime: 30_000,
+  });
+  const preflight = useMutation({
+    mutationFn: async () => {
+      if (!room) throw new Error("Room is unavailable for compatibility preflight");
+      const local = await retroarchPreflight(room.game_id);
+      return api.submitPreflight(token, roomId, {
+        room_id: roomId,
+        native_port_available: local.native_port_available,
+        compatibility: {
+          adapter: local.adapter,
+          emulator_version: local.emulator_version ?? null,
+          executable_sha256: local.executable_sha256,
+          core_sha256: local.core_sha256,
+          content_sha256: local.content_sha256,
+        },
+      });
+    },
+    onSuccess: (value) => queryClient.setQueryData(["room-snapshot", roomId], value),
+    onError: (error) =>
+      dispatch({
+        type: "failed",
+        error: error instanceof Error ? error.message : "Compatibility preflight failed",
+      }),
+  });
+  const ready = useMutation({
+    mutationFn: () => api.readyToLaunch(token, roomId),
+    onSuccess: (value) => queryClient.setQueryData(["room-snapshot", roomId], value),
+    onError: (error) =>
+      dispatch({
+        type: "failed",
+        error: error instanceof Error ? error.message : "Launch barrier failed",
+      }),
+  });
+  const launchAt = snapshot.data?.barrier.launch_at
+    ? new Date(snapshot.data.barrier.launch_at).getTime()
+    : undefined;
+  const canLaunch = Boolean(
+    snapshot.data?.compatibility_matched &&
+    snapshot.data.barrier.ready_count === snapshot.data.barrier.required_count &&
+    launchAt !== undefined &&
+    launchAt <= Date.now()
+  );
   const playableMatch = useMutation({
     mutationFn: async () => {
       if (!room || !participants || !localEndpoint || !peerEndpoint) {
@@ -51,13 +101,17 @@ export function usePlayableMatch({
       if (probeReport?.transport !== "direct_udp") {
         throw new Error("Native gameplay requires a verified direct UDP path");
       }
-      dispatch({ type: "launch_requested" });
-      const grant = await api.createLaunchGrant(
-        token,
-        roomId,
-        nativeLanEndpoint(localEndpoint.endpoint),
-        nativeLanEndpoint(peerEndpoint.endpoint)
+      if (!canLaunch) throw new Error("Synchronized launch barrier is not ready");
+      const route = selectNativeRoute(
+        room,
+        userId,
+        localEndpoint.endpoint,
+        peerEndpoint.endpoint,
+        probeReport.transport,
+        probeReport.candidate
       );
+      dispatch({ type: "launch_requested" });
+      const grant = await api.createLaunchGrant(token, roomId, route.local, route.peer);
       const launch = await launchRetroarchMatch({
         api_url: getApiBase(),
         session_token: token,
@@ -102,6 +156,18 @@ export function usePlayableMatch({
   }, [peerCompletion, probeReport]);
 
   useEffect(() => {
+    if (coordinator.phase !== "ready" || preflightStarted.current) return;
+    preflightStarted.current = true;
+    preflight.mutate();
+  }, [coordinator.phase, preflight]);
+
+  useEffect(() => {
+    if (!snapshot.data?.compatibility_matched || readyStarted.current) return;
+    readyStarted.current = true;
+    ready.mutate();
+  }, [ready, snapshot.data?.compatibility_matched]);
+
+  useEffect(() => {
     if (room?.state === "playing") dispatch({ type: "room_playing" });
     if (room?.state === "finished") dispatch({ type: "room_finished" });
   }, [room?.state]);
@@ -127,6 +193,14 @@ export function usePlayableMatch({
     coordinator,
     participants,
     playableMatch,
-    resetCoordinator: () => dispatch({ type: "reset" }),
+    snapshot: snapshot.data,
+    preflightPending: preflight.isPending,
+    launchBarrierPending: ready.isPending,
+    canLaunch,
+    resetCoordinator: () => {
+      preflightStarted.current = false;
+      readyStarted.current = false;
+      dispatch({ type: "reset" });
+    },
   };
 }

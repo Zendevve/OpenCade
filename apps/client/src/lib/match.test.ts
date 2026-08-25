@@ -5,6 +5,7 @@ import {
   nativeLanEndpoint,
   parseMatchCompletion,
   parseMatchEndpoint,
+  selectNativeRoute,
 } from "./match";
 
 const room = (guestId: string | null = "guest"): RoomPayload => ({
@@ -104,5 +105,43 @@ describe("nativeLanEndpoint", () => {
   it("preserves the verified host and selects the RetroArch TCP port", () => {
     expect(nativeLanEndpoint("192.168.1.20:42000")).toBe("192.168.1.20:55435");
     expect(nativeLanEndpoint("[::1]:42000")).toBe("[::1]:55435");
+  });
+});
+
+describe("selectNativeRoute", () => {
+  it("selects the room host deterministically from either perspective", () => {
+    expect(
+      selectNativeRoute(
+        room(),
+        "host",
+        "192.168.1.10:40000",
+        "192.168.1.20:40001",
+        "direct_udp",
+        "host"
+      ).host
+    ).toBe("192.168.1.10:55435");
+    expect(
+      selectNativeRoute(
+        room(),
+        "guest",
+        "192.168.1.20:40001",
+        "192.168.1.10:40000",
+        "direct_udp",
+        "host"
+      ).host
+    ).toBe("192.168.1.10:55435");
+  });
+
+  it("never promotes readiness-only routes to playable routes", () => {
+    expect(() =>
+      selectNativeRoute(
+        room(),
+        "host",
+        "192.168.1.10:40000",
+        "203.0.113.20:50000",
+        "relay",
+        "reflexive"
+      )
+    ).toThrow("same-LAN");
   });
 });

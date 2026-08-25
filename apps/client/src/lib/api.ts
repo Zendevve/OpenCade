@@ -1,4 +1,12 @@
-import type { Envelope, RoomPayload } from "@opencade/protocol";
+import type {
+  AlphaFailureReport,
+  Envelope,
+  MatchPreflightPayload,
+  MatchReport,
+  RoomInvitePayload,
+  RoomPayload,
+  RoomSnapshotPayload,
+} from "@opencade/protocol";
 
 export type User = { id: string; username: string; email?: string | null };
 export type AuthPayload = { user: User; token: string; expires_at: string };
@@ -28,9 +36,29 @@ export type RelayTicket = {
     user_id: string;
     expires_at: number;
     signature: string;
+    capability: "probe" | "native_tcp_tunnel";
   };
 };
 export type MatchLaunchGrant = { grant: string; expires_at: string };
+export type CampaignSummary = {
+  schema_version: number;
+  reports: number;
+  attempts: number;
+  verified: number;
+  failed: number;
+  success_rate: number;
+  gate_passed: boolean;
+  failures: { room_id: string; code: string }[];
+  compatibility: {
+    game_id: string;
+    platform: string;
+    transport: string;
+    nat: string;
+    candidate: string;
+    attempts: number;
+    verified: number;
+  }[];
+};
 
 type ErrorPayload = { code?: string; message?: string };
 
@@ -156,7 +184,8 @@ export const api = {
     roomId: string,
     localEndpoint: string,
     peerEndpoint: string,
-    inputDelayFrames = 2
+    inputDelayFrames = 2,
+    campaignMode = true
   ) =>
     request<MatchLaunchGrant>(
       `/api/v1/rooms/${roomId}/launch-grant`,
@@ -165,8 +194,28 @@ export const api = {
         local_endpoint: localEndpoint,
         peer_endpoint: peerEndpoint,
         input_delay_frames: inputDelayFrames,
+        campaign_mode: campaignMode,
       })
     ),
   relayTicket: (token: string, roomId: string) =>
     request<RelayTicket>(`/api/v1/rooms/${roomId}/relay-ticket`, token, post()),
+  nativeTunnelTicket: (token: string, roomId: string) =>
+    request<RelayTicket>(`/api/v1/rooms/${roomId}/native-tunnel-ticket`, token, post()),
+  createInvite: (token: string, roomId: string) =>
+    request<RoomInvitePayload>(`/api/v1/rooms/${roomId}/invite`, token, post()),
+  joinInvite: (token: string, code: string) =>
+    request<RoomPayload>("/api/v1/invites/join", token, post({ code })),
+  submitPreflight: (token: string, roomId: string, payload: MatchPreflightPayload) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/preflight`, token, post(payload)),
+  roomSnapshot: (token: string, roomId: string) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/snapshot`, token),
+  readyToLaunch: (token: string, roomId: string) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/ready`, token, post()),
+  submitEvidence: (token: string, evidence: MatchReport | AlphaFailureReport) =>
+    request<{ digest: string; duplicate: boolean }>(
+      "/api/v1/alpha/evidence",
+      token,
+      post({ evidence })
+    ),
+  campaign: (token: string) => request<CampaignSummary>("/api/v1/alpha/campaign", token),
 };

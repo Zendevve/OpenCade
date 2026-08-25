@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Challenge } from "../lib/api";
+import type { RoomPayload } from "@opencade/protocol";
 
 type Props = {
   token: string;
@@ -13,12 +14,18 @@ type Props = {
 export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props) {
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState("Creating your lobby presence…");
+  const [lobbyRoom, setLobbyRoom] = useState<RoomPayload | null>(null);
+  const [inviteCode, setInviteCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
   useEffect(() => {
     let active = true;
     api
       .joinLobby(token, gameId)
-      .then(() => {
-        if (active) setNotice("Ready for challenges");
+      .then((room) => {
+        if (active) {
+          setLobbyRoom(room);
+          setNotice("Ready for challenges");
+        }
       })
       .catch((error: Error) => {
         if (active) setNotice(error.message);
@@ -42,6 +49,22 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
     onSuccess: () => setNotice("Challenge sent. Waiting for response…"),
     onError: (error) => setNotice(error.message),
   });
+  const createInvite = useMutation({
+    mutationFn: () => {
+      if (!lobbyRoom) throw new Error("Lobby room is not ready");
+      return api.createInvite(token, lobbyRoom.id);
+    },
+    onSuccess: (invite) => {
+      setInviteCode(invite.code);
+      setNotice(`Invite expires ${new Date(invite.expires_at).toLocaleTimeString()}`);
+    },
+    onError: (error) => setNotice(error.message),
+  });
+  const joinInvite = useMutation({
+    mutationFn: () => api.joinInvite(token, joinCode),
+    onSuccess: (room) => onMatch(room.id),
+    onError: (error) => setNotice(error.message),
+  });
   const pending = incoming.data?.challenges.filter((item) => item.game_id === gameId) ?? [];
   const peers = lobby.data?.members.filter((member) => member.user_id !== userId) ?? [];
   const respond = async (item: Challenge, accept: boolean) => {
@@ -63,6 +86,35 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
         </div>
         <span className="count">{notice}</span>
       </div>
+      <article className="challenge-banner">
+        <div>
+          <strong>Private alpha invite</strong>
+          <span>{inviteCode || "Create a one-use 15-minute code or join one."}</span>
+        </div>
+        <div>
+          <input
+            aria-label="Invite code"
+            maxLength={10}
+            placeholder="A1B2C3D4E5"
+            value={joinCode}
+            onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+          />
+          <button
+            className="secondary"
+            disabled={!lobbyRoom || createInvite.isPending}
+            onClick={() => createInvite.mutate()}
+          >
+            Create code
+          </button>
+          <button
+            className="primary compact"
+            disabled={joinCode.length !== 10 || joinInvite.isPending}
+            onClick={() => joinInvite.mutate()}
+          >
+            Join code
+          </button>
+        </div>
+      </article>
       {pending.map((item) => (
         <article className="challenge-banner" key={item.id}>
           <div>

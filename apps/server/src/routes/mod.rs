@@ -1,3 +1,5 @@
+pub mod alpha;
+pub mod alpha_evidence;
 pub mod auth;
 pub mod challenges;
 pub mod games;

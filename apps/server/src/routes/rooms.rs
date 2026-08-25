@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use axum::{Json, extract::Path, extract::State, http::StatusCode};
 use opencade_protocol::{Envelope, RoomPayload, RoomState};
-use opencade_shared::RelayTicket;
+use opencade_shared::{RelayCapability, RelayTicket};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::{Postgres, Row, Transaction};
@@ -34,6 +34,8 @@ pub struct CreateLaunchGrantRequest {
     local_endpoint: String,
     peer_endpoint: String,
     input_delay_frames: u8,
+    #[serde(default)]
+    campaign_mode: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +47,7 @@ fn default_max_players() -> i32 {
     2
 }
 
-async fn room_payload(
+pub(crate) async fn room_payload(
     state: &AppState,
     room_id: Uuid,
     requesting_user: Uuid,
@@ -313,6 +315,55 @@ pub async fn relay_ticket(
     )))
 }
 
+pub async fn native_tunnel_ticket(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    let relay_url = state
+        .config
+        .relay_url
+        .as_deref()
+        .ok_or_else(|| AppError::Conflict("native tunnel is not configured".into()))?;
+    let relay_secret = state
+        .config
+        .relay_secret
+        .as_deref()
+        .ok_or_else(|| AppError::Internal("relay signing is not configured".into()))?;
+    let eligible = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(
+            SELECT 1 FROM room_members
+            JOIN rooms ON rooms.id = room_members.room_id
+            WHERE room_members.room_id = $1 AND room_members.user_id = $2
+              AND rooms.state IN ('CONNECTING', 'PLAYING')
+              AND (SELECT count(*) FROM match_preflights
+                   WHERE room_id = $1 AND ready = TRUE) = 2
+         )",
+    )
+    .bind(id)
+    .bind(user.id)
+    .fetch_one(&state.pool)
+    .await?;
+    if !eligible {
+        return Err(AppError::Forbidden(
+            "native tunnel tickets require a ready two-peer room".into(),
+        ));
+    }
+    let expires_at = chrono::Utc::now().timestamp() + 120;
+    let ticket = RelayTicket::issue_scoped(
+        relay_secret.as_bytes(),
+        &id.to_string(),
+        &user.id.to_string(),
+        expires_at,
+        RelayCapability::NativeTcpTunnel,
+    )
+    .map_err(|_| AppError::Internal("failed to issue native tunnel ticket".into()))?;
+    Ok(Json(Envelope::new(
+        "native_tcp_tunnel.ticket",
+        json!({ "relay_url": relay_url, "ticket": ticket }),
+    )))
+}
+
 pub async fn create_launch_grant(
     State(state): State<AppState>,
     user: AuthUser,
@@ -347,6 +398,24 @@ pub async fn create_launch_grant(
         return Err(AppError::Conflict(
             "launch grants are issued only while a room is connecting".into(),
         ));
+    }
+    if request.campaign_mode {
+        let ready = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM room_launch_barriers barrier
+                WHERE barrier.room_id = $1 AND barrier.launch_at <= now()
+                  AND (SELECT count(*) FROM match_preflights
+                       WHERE room_id = $1 AND ready = TRUE) = 2
+             )",
+        )
+        .bind(id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !ready {
+            return Err(AppError::Conflict(
+                "community alpha launch barrier is not ready".into(),
+            ));
+        }
     }
     let row = sqlx::query(
         "SELECT rooms.game_id, peer.user_id AS peer_user_id
@@ -617,7 +686,7 @@ async fn confirm_native_exit(
     notify_room_state(state, room_id, user.id).await
 }
 
-async fn notify_room_state(
+pub(crate) async fn notify_room_state(
     state: &AppState,
     room_id: Uuid,
     requesting_user: Uuid,

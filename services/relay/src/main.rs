@@ -10,7 +10,7 @@ use axum::{
 };
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
-use opencade_shared::RelayTicket;
+use opencade_shared::{RelayCapability, RelayTicket};
 use serde_json::{Value, json};
 use std::{
     env,
@@ -140,8 +140,9 @@ async fn relay_ws_handler(
     }
     let room_id = ticket.room_id;
     let user_id = ticket.user_id;
+    let capability = ticket.capability;
     info!(room_id = %room_id, "authorized relay upgrade");
-    ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, user_id))
+    ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, user_id, capability))
         .into_response()
 }
 
@@ -160,13 +161,20 @@ fn broadcast_message(state: &SharedState, room_id: &str, msg: Message, skip_id: 
     sent
 }
 
-async fn handle_socket(socket: WebSocket, state: SharedState, room_id: String, user_id: String) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: SharedState,
+    room_id: String,
+    user_id: String,
+    capability: RelayCapability,
+) {
     let id = Uuid::new_v4();
+    let room_key = format!("{room_id}:{}", capability.as_str());
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(64);
 
     {
-        let room = state.rooms.entry(room_id.clone()).or_default();
+        let room = state.rooms.entry(room_key.clone()).or_default();
         if room.len() >= 2 && !room.contains_key(&user_id) {
             warn!(room_id = %room_id, "relay room is full");
             return;
@@ -183,7 +191,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState, room_id: String, u
     info!(
         peer_id = %id,
         room_id = %room_id,
-        peers_in_room = state.rooms.get(&room_id).map(|r| r.len()).unwrap_or(0),
+        peers_in_room = state.rooms.get(&room_key).map(|r| r.len()).unwrap_or(0),
         "peer inserted"
     );
 
@@ -237,19 +245,23 @@ async fn handle_socket(socket: WebSocket, state: SharedState, room_id: String, u
                             continue;
                         }
                         let sent =
-                            broadcast_message(&state, &room_id, Message::Text(text.clone()), id);
+                            broadcast_message(&state, &room_key, Message::Text(text.clone()), id);
                         info!(peer_id = %id, room_id = %room_id, sent = sent, "broadcast envelope");
                     } else {
                         warn!(peer_id = %id, room_id = %room_id, "non-envelope relay text rejected");
                     }
                 }
                 Message::Binary(bin) => {
-                    if bin.len() > 64 * 1024 {
+                    let maximum = match capability {
+                        RelayCapability::Probe => 64 * 1024,
+                        RelayCapability::NativeTcpTunnel => 16 * 1024,
+                    };
+                    if bin.len() > maximum {
                         warn!(peer_id = %id, room_id = %room_id, "oversized relay frame rejected");
                         continue;
                     }
                     let sent =
-                        broadcast_message(&state, &room_id, Message::Binary(bin.clone()), id);
+                        broadcast_message(&state, &room_key, Message::Binary(bin.clone()), id);
                     info!(peer_id = %id, sent = sent, "broadcast binary");
                 }
                 Message::Ping(payload) => {
@@ -270,7 +282,7 @@ async fn handle_socket(socket: WebSocket, state: SharedState, room_id: String, u
         }
     }
 
-    if let Some(room) = state.rooms.get(&room_id)
+    if let Some(room) = state.rooms.get(&room_key)
         && room
             .get(&user_id)
             .is_some_and(|peer| peer.connection_id == id)
@@ -345,6 +357,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use futures::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_tungstenite::{connect_async, tungstenite::Message as ClientMessage};
 
     const SECRET: &str = "relay-integration-secret-at-least-32-bytes";
@@ -362,8 +375,12 @@ mod tests {
 
     fn ticket_url(address: SocketAddr, ticket: &RelayTicket) -> String {
         format!(
-            "ws://{address}/relay?room_id={}&user_id={}&expires_at={}&signature={}",
-            ticket.room_id, ticket.user_id, ticket.expires_at, ticket.signature
+            "ws://{address}/relay?room_id={}&user_id={}&expires_at={}&capability={}&signature={}",
+            ticket.room_id,
+            ticket.user_id,
+            ticket.expires_at,
+            ticket.capability.as_str(),
+            ticket.signature
         )
     }
 
@@ -410,6 +427,81 @@ mod tests {
         let mut tampered = host;
         tampered.room_id = "other-room".into();
         assert!(connect_async(ticket_url(address, &tampered)).await.is_err());
+        server.abort();
+    }
+
+    async fn tcp_pair() -> (tokio::net::TcpStream, tokio::net::TcpStream) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("TCP listener");
+        let address = listener.local_addr().expect("TCP address");
+        let (client, accepted) =
+            tokio::join!(tokio::net::TcpStream::connect(address), listener.accept());
+        (
+            client.expect("TCP connect"),
+            accepted.expect("TCP accept").0,
+        )
+    }
+
+    #[tokio::test]
+    async fn scoped_native_tunnel_carries_bounded_tcp_stream_on_loopback() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("relay listener");
+        let address = listener.local_addr().expect("relay address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, build_relay_app(state()))
+                .await
+                .expect("relay server");
+        });
+        let now = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_secs(),
+        )
+        .expect("timestamp");
+        let host_ticket = RelayTicket::issue_scoped(
+            SECRET.as_bytes(),
+            "native-room",
+            "host",
+            now + 120,
+            RelayCapability::NativeTcpTunnel,
+        )
+        .expect("host tunnel ticket");
+        let guest_ticket = RelayTicket::issue_scoped(
+            SECRET.as_bytes(),
+            "native-room",
+            "guest",
+            now + 120,
+            RelayCapability::NativeTcpTunnel,
+        )
+        .expect("guest tunnel ticket");
+        let relay_url = format!("ws://{address}/relay");
+        let (mut host_app, host_tunnel) = tcp_pair().await;
+        let (mut guest_app, guest_tunnel) = tcp_pair().await;
+        let host_url = relay_url.clone();
+        let host = tokio::spawn(async move {
+            opencade_networking::run_native_tcp_tunnel(host_tunnel, &host_url, &host_ticket).await
+        });
+        let guest = tokio::spawn(async move {
+            opencade_networking::run_native_tcp_tunnel(guest_tunnel, &relay_url, &guest_ticket)
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let payload = vec![0x5a; 40 * 1024];
+        host_app.write_all(&payload).await.expect("TCP write");
+        let mut received = vec![0_u8; payload.len()];
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            guest_app.read_exact(&mut received),
+        )
+        .await
+        .expect("tunnel timeout")
+        .expect("TCP read");
+        assert_eq!(received, payload);
+        host.abort();
+        guest.abort();
         server.abort();
     }
 }

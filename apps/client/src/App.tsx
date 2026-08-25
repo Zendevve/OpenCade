@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Envelope,
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
+  RoomPayload,
+  RoomSnapshotPayload,
 } from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
 import { ApiError, api, configureApiBase } from "./lib/api";
 import { parseMatchCompletion, parseMatchEndpoint } from "./lib/match";
 import { cancelMatchProbe, loadRuntimeConfig } from "./lib/native";
 import { useSessionStore } from "./lib/store";
+import { newestSnapshot } from "./lib/snapshot";
 import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
 import Games from "./routes/Games";
@@ -20,7 +23,8 @@ type View =
   { name: "games" } | { name: "lobby"; gameId: string } | { name: "match"; roomId: string };
 
 export default function App() {
-  const { token, user, hydrated, hydrate, setSession, clearSession } = useSessionStore();
+  const { token, user, hydrated, activeRoomId, hydrate, setSession, clearSession, setActiveRoom } =
+    useSessionStore();
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>({ name: "games" });
   const [connection, setConnection] = useState<ConnectionState>("idle");
@@ -29,10 +33,18 @@ export default function App() {
   const [peerCompletion, setPeerCompletion] = useState<MatchProbeCompletedPayload | null>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const activeRoom = useRef<string | null>(null);
+  activeRoom.current = view.name === "match" ? view.roomId : null;
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (hydrated && activeRoomId && view.name === "games") {
+      setView({ name: "match", roomId: activeRoomId });
+    }
+  }, [activeRoomId, hydrated, view.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,12 +82,19 @@ export default function App() {
     const socket = new OpenCadeSocket(apiUrl, token, setConnection);
     setActiveSocket(socket);
     const unsubscribe = socket.subscribe((message: Envelope<unknown>) => {
+      if (message.type === "connection.hello" && activeRoom.current) {
+        void queryClient.invalidateQueries({ queryKey: ["room", activeRoom.current] });
+        void queryClient.invalidateQueries({ queryKey: ["room-snapshot", activeRoom.current] });
+      }
       if (message.type.startsWith("challenge.")) {
         void queryClient.invalidateQueries({ queryKey: ["challenges"] });
       }
       if (message.type === "challenge.accepted") {
         const roomId = roomIdFromPayload(message.payload);
-        if (roomId) setView({ name: "match", roomId });
+        if (roomId) {
+          setActiveRoom(roomId);
+          setView({ name: "match", roomId });
+        }
       }
       if (message.type === "match.endpoint") {
         const endpoint = parseMatchEndpoint(message.payload);
@@ -87,6 +106,17 @@ export default function App() {
         const completion = parseMatchCompletion(message.payload);
         if (completion) setPeerCompletion(completion);
       }
+      if (message.type === "room.state" && isRoomPayload(message.payload)) {
+        queryClient.setQueryData(["room", message.payload.id], message.payload);
+      }
+      if (message.type === "room.snapshot" && isRoomSnapshot(message.payload)) {
+        const snapshot = message.payload;
+        queryClient.setQueryData<RoomSnapshotPayload>(
+          ["room-snapshot", snapshot.room.id],
+          (current) => newestSnapshot(current, snapshot)
+        );
+        queryClient.setQueryData(["room", snapshot.room.id], snapshot.room);
+      }
     });
     socket.connect();
     return () => {
@@ -94,7 +124,7 @@ export default function App() {
       socket.close();
       setActiveSocket((current) => (current === socket ? null : current));
     };
-  }, [apiUrl, token, queryClient]);
+  }, [apiUrl, token, queryClient, setActiveRoom]);
 
   if (runtimeError) {
     return (
@@ -131,6 +161,7 @@ export default function App() {
     if (view.name === "match") void cancelMatchProbe(view.roomId);
     setPeerEndpoint(null);
     setPeerCompletion(null);
+    setActiveRoom(null);
     setView({ name: "games" });
   };
   return (
@@ -159,7 +190,10 @@ export default function App() {
             userId={user.id}
             gameId={view.gameId}
             onBack={() => setView({ name: "games" })}
-            onMatch={(roomId) => setView({ name: "match", roomId })}
+            onMatch={(roomId) => {
+              setActiveRoom(roomId);
+              setView({ name: "match", roomId });
+            }}
           />
         )}
         {view.name === "match" && (
@@ -179,6 +213,25 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function isRoomPayload(payload: unknown): payload is RoomPayload {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof Reflect.get(payload, "id") === "string" &&
+    typeof Reflect.get(payload, "game_id") === "string" &&
+    typeof Reflect.get(payload, "state") === "string"
+  );
+}
+
+function isRoomSnapshot(payload: unknown): payload is RoomSnapshotPayload {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    isRoomPayload(Reflect.get(payload, "room")) &&
+    typeof Reflect.get(payload, "revision") === "number"
   );
 }
 

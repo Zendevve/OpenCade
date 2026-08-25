@@ -72,3 +72,25 @@ export function nativeLanEndpoint(endpoint: string, port = 55_435): string {
       : parsed.hostname;
   return `${host}:${port}`;
 }
+
+export function selectNativeRoute(
+  room: RoomPayload,
+  localUserId: string,
+  localEndpoint: string,
+  peerEndpoint: string,
+  transport: "direct_udp" | "relay",
+  candidate: "host" | "reflexive"
+): { local: string; peer: string; host: string } {
+  const participants = matchParticipants(room, localUserId);
+  if (!participants) throw new Error("Native route requires two room members");
+  if (transport !== "direct_udp" || candidate !== "host") {
+    throw new Error("Native route requires a verified same-LAN host candidate");
+  }
+  const local = nativeLanEndpoint(localEndpoint);
+  const peer = nativeLanEndpoint(peerEndpoint);
+  return {
+    local,
+    peer,
+    host: participants.role === "host" ? local : peer,
+  };
+}
