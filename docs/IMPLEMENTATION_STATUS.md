@@ -42,6 +42,8 @@ Updated 2026-08-25.
   compatibility preflights, and an idempotent synchronized launch barrier.
 - A community-alpha dashboard backed by authenticated, privacy-filtered, conflict-safe evidence
   uploads and a bounded server-side campaign summary.
+- A reusable match-readiness gate that validates the desktop runtime, control plane, local game
+  runtime, native port, and advisory network fallback before a player enters a lobby.
 - A capability-scoped native TCP tunnel primitive with bounded binary frames and a real loopback
   relay integration test. It is separately ticketed from readiness probes and remains disabled as
   an automatic gameplay route pending physical two-host validation.

@@ -1,23 +1,35 @@
+import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, type Game } from "../lib/api";
 import { scanGame } from "../lib/native";
 import CampaignDashboard from "../components/CampaignDashboard";
+import MatchReadiness from "../components/MatchReadiness";
 
 type Props = { token: string; onSelect: (gameId: string) => void };
 
 export default function Games({ token, onSelect }: Props) {
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const games = useQuery({ queryKey: ["games"], queryFn: () => api.games(token) });
   if (games.isPending) return <StatusCard title="Loading games" detail="Reading server catalog…" />;
   if (games.isError) return <StatusCard title="Games unavailable" detail={games.error.message} />;
+  if (selectedGame) {
+    return (
+      <MatchReadiness
+        game={selectedGame}
+        onBack={() => setSelectedGame(null)}
+        onContinue={() => onSelect(selectedGame.id)}
+      />
+    );
+  }
   return (
     <>
       <CampaignDashboard token={token} />
-      <GameCatalog games={games.data.games} onSelect={onSelect} />
+      <GameCatalog games={games.data.games} onSelect={setSelectedGame} />
     </>
   );
 }
 
-function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (gameId: string) => void }) {
+function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (game: Game) => void }) {
   const availability = useQueries({
     queries: games.map((game) => ({
       queryKey: ["availability", game.id],
@@ -36,7 +48,7 @@ function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (gameId: st
       </div>
       <div className="game-grid">
         {games.map((game, index) => (
-          <button className="game-card" key={game.id} onClick={() => onSelect(game.id)}>
+          <button className="game-card" key={game.id} onClick={() => onSelect(game)}>
             <span className="game-mark" aria-hidden="true">
               {game.name.slice(0, 2).toUpperCase()}
             </span>
