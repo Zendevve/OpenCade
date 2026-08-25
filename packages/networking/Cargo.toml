@@ -2,7 +2,7 @@
 name = "opencade-networking"
 version = "0.1.0"
 edition = "2024"
-description = "OpenCade networking — signaling, NAT traversal, relay (placeholder for M1)"
+description = "OpenCade networking — deterministic probes, NAT traversal, and relay transport"
 license = "Apache-2.0"
 repository = "https://github.com/opencade/opencade"
 rust-version = "1.98"
@@ -11,10 +11,14 @@ rust-version = "1.98"
 chrono = "0.4.45"
 opencade-emulator-sdk = { path = "../emulator-sdk" }
 opencade-protocol = { path = "../protocol" }
+opencade-shared = { path = "../shared" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["macros", "net", "rt", "sync", "time"] }
 uuid = { version = "1.25.0", features = ["v4"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
+url = "2.5.8"
 
 [dev-dependencies]

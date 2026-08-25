@@ -6,9 +6,9 @@ import type {
   MatchProbeCompletedPayload,
 } from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
-import { ApiError, api } from "./lib/api";
+import { ApiError, api, configureApiBase } from "./lib/api";
 import { parseMatchCompletion, parseMatchEndpoint } from "./lib/match";
-import { cancelMatchProbe } from "./lib/native";
+import { cancelMatchProbe, loadRuntimeConfig } from "./lib/native";
 import { useSessionStore } from "./lib/store";
 import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
@@ -16,25 +16,47 @@ import Games from "./routes/Games";
 import Lobby from "./routes/Lobby";
 import Match from "./routes/Match";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 type View =
   { name: "games" } | { name: "lobby"; gameId: string } | { name: "match"; roomId: string };
 
 export default function App() {
-  const { token, user, setSession, clearSession } = useSessionStore();
+  const { token, user, hydrated, hydrate, setSession, clearSession } = useSessionStore();
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>({ name: "games" });
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [activeSocket, setActiveSocket] = useState<OpenCadeSocket | null>(null);
   const [peerEndpoint, setPeerEndpoint] = useState<MatchEndpointPayload | null>(null);
   const [peerCompletion, setPeerCompletion] = useState<MatchProbeCompletedPayload | null>(null);
+  const [apiUrl, setApiUrl] = useState<string | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadRuntimeConfig()
+      .then((config) => {
+        configureApiBase(config.api_url);
+        if (!cancelled) setApiUrl(config.api_url);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setRuntimeError(error instanceof Error ? error.message : "Runtime configuration failed");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const me = useQuery({
     queryKey: ["me", token],
     queryFn: () => {
       if (!token) throw new Error("session token unavailable");
       return api.me(token);
     },
-    enabled: Boolean(token && !user),
+    enabled: Boolean(apiUrl && token && !user),
     retry: false,
   });
 
@@ -44,8 +66,8 @@ export default function App() {
   }, [token, me.data, me.error, setSession, clearSession]);
 
   useEffect(() => {
-    if (!token) return;
-    const socket = new OpenCadeSocket(API_URL, token, setConnection);
+    if (!apiUrl || !token) return;
+    const socket = new OpenCadeSocket(apiUrl, token, setConnection);
     setActiveSocket(socket);
     const unsubscribe = socket.subscribe((message: Envelope<unknown>) => {
       if (message.type.startsWith("challenge.")) {
@@ -72,7 +94,22 @@ export default function App() {
       socket.close();
       setActiveSocket((current) => (current === socket ? null : current));
     };
-  }, [token, queryClient]);
+  }, [apiUrl, token, queryClient]);
+
+  if (runtimeError) {
+    return (
+      <main className="center-stage">
+        <div className="status-card">{runtimeError}</div>
+      </main>
+    );
+  }
+  if (!apiUrl || !hydrated) {
+    return (
+      <main className="center-stage">
+        <div className="status-card">Restoring secure runtime state…</div>
+      </main>
+    );
+  }
 
   if (!token) return <Auth onAuthenticated={setSession} />;
   if (!user) {

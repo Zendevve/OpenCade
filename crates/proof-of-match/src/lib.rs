@@ -324,6 +324,12 @@ fn build_report(
             platform: platform.to_string(),
             user_agent: user_agent.to_string(),
         },
+        // The keystone uses `MockAdapter` and does not launch a real native emulator, so
+        // there is no native emulator compatibility fingerprint to attest. The pair verifier
+        // requires the two reports to agree, and `None == None` is true. Real emulator runs
+        // (FBNeo / RetroArch) go through `verify_playable_match_reports` instead, which
+        // requires `Some(_)` on both sides.
+        compatibility: None,
     }
 }
 

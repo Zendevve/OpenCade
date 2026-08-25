@@ -6,6 +6,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use opencade_protocol::Envelope;
 use opencade_server::{AppState, Config, build_app};
+use opencade_shared::RelayTicket;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -78,7 +79,10 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         .run(&pool)
         .await
         .expect("migrations should succeed");
-    let app = build_app(AppState::new(pool.clone(), Config::for_test()));
+    let mut config = Config::for_test();
+    config.relay_url = Some("wss://relay.example/relay".into());
+    config.relay_secret = Some("integration-relay-secret-at-least-32-bytes".into());
+    let app = build_app(AppState::new(pool.clone(), config));
     let host_token = register(&app, "host_player").await;
     let guest_token = register(&app, "guest_player").await;
     let observer_token = register(&app, "observer_player").await;
@@ -88,6 +92,16 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
         request(&app, Method::GET, "/api/v1/games", Some(&host_token), None).await;
     assert_eq!(games_status, StatusCode::OK);
     assert_eq!(games.payload["games"].as_array().map(Vec::len), Some(5));
+
+    let (oversized_room_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&host_token),
+        Some(json!({ "game_id": "sfiii3", "max_players": 3 })),
+    )
+    .await;
+    assert_eq!(oversized_room_status, StatusCode::BAD_REQUEST);
 
     let (_, waiting_room) = request(
         &app,
@@ -168,6 +182,40 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     assert_eq!(room_status, StatusCode::OK);
     assert_eq!(room.payload["state"], "connecting");
     assert!(room.payload["guest_id"].as_str().is_some());
+
+    let (observer_relay_status, _) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/relay-ticket"),
+        Some(&observer_token),
+        None,
+    )
+    .await;
+    assert_eq!(observer_relay_status, StatusCode::FORBIDDEN);
+    let (relay_status, relay_response) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/relay-ticket"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(relay_status, StatusCode::OK);
+    assert_eq!(
+        relay_response.payload["relay_url"],
+        "wss://relay.example/relay"
+    );
+    let relay_ticket: RelayTicket =
+        serde_json::from_value(relay_response.payload["ticket"].clone()).expect("relay ticket");
+    assert_eq!(relay_ticket.room_id, room_id);
+    assert!(
+        relay_ticket
+            .verify(
+                b"integration-relay-secret-at-least-32-bytes",
+                chrono::Utc::now().timestamp(),
+            )
+            .is_ok()
+    );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -316,6 +364,64 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     assert_eq!(completion_ack.msg_type, "match.probe.completed.relayed");
     assert_eq!(completion_ack.request_id, completion_request_id);
 
+    let (grant_status, grant) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/launch-grant"),
+        Some(&host_token),
+        Some(json!({
+            "local_endpoint": "192.168.1.20:55435",
+            "peer_endpoint": "192.168.1.21:55435",
+            "input_delay_frames": 2
+        })),
+    )
+    .await;
+    assert_eq!(grant_status, StatusCode::OK);
+    let raw_grant = grant.payload["grant"].as_str().expect("launch grant");
+    let (consume_status, consumed) = request(
+        &app,
+        Method::POST,
+        "/api/v1/match-launch-grants/consume",
+        Some(&host_token),
+        Some(json!({ "grant": raw_grant })),
+    )
+    .await;
+    assert_eq!(consume_status, StatusCode::OK);
+    assert_eq!(consumed.payload["room_id"], room_id);
+    assert_eq!(consumed.payload["role"], "host");
+    let (replay_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/match-launch-grants/consume",
+        Some(&host_token),
+        Some(json!({ "grant": raw_grant })),
+    )
+    .await;
+    assert_eq!(replay_status, StatusCode::UNAUTHORIZED);
+    let (guest_grant_status, guest_grant) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/launch-grant"),
+        Some(&guest_token),
+        Some(json!({
+            "local_endpoint": "192.168.1.21:55435",
+            "peer_endpoint": "192.168.1.20:55435",
+            "input_delay_frames": 2
+        })),
+    )
+    .await;
+    assert_eq!(guest_grant_status, StatusCode::OK);
+    let (guest_consume_status, guest_consumed) = request(
+        &app,
+        Method::POST,
+        "/api/v1/match-launch-grants/consume",
+        Some(&guest_token),
+        Some(json!({ "grant": guest_grant.payload["grant"] })),
+    )
+    .await;
+    assert_eq!(guest_consume_status, StatusCode::OK);
+    assert_eq!(guest_consumed.payload["role"], "guest");
+
     let (start_status, started) = request(
         &app,
         Method::POST,
@@ -325,16 +431,36 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     )
     .await;
     assert_eq!(start_status, StatusCode::OK);
+    assert_eq!(started.payload["state"], "connecting");
+    let (guest_start_status, started) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/start"),
+        Some(&guest_token),
+        None,
+    )
+    .await;
+    assert_eq!(guest_start_status, StatusCode::OK);
     assert_eq!(started.payload["state"], "playing");
     let (finish_status, finished) = request(
         &app,
         Method::POST,
         &format!("/api/v1/rooms/{room_id}/finish"),
-        Some(&guest_token),
-        None,
+        Some(&host_token),
+        Some(json!({ "exit_code": 0 })),
     )
     .await;
     assert_eq!(finish_status, StatusCode::OK);
+    assert_eq!(finished.payload["state"], "playing");
+    let (guest_finish_status, finished) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/finish"),
+        Some(&guest_token),
+        Some(json!({ "exit_code": 0 })),
+    )
+    .await;
+    assert_eq!(guest_finish_status, StatusCode::OK);
     assert_eq!(finished.payload["state"], "finished");
     let ended = sqlx::query_scalar::<_, bool>(
         "SELECT ended_at IS NOT NULL FROM matches WHERE room_id = $1",

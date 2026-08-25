@@ -1,4 +1,4 @@
-use opencade_networking::{read_match_report, verify_match_reports};
+use opencade_networking::{read_match_report, verify_match_reports, verify_playable_match_reports};
 use opencade_protocol::MatchReport;
 use serde::Serialize;
 use std::path::Path;
@@ -36,7 +36,12 @@ fn main() {
 
 fn run() -> Result<String, (Failure, i32)> {
     let mut args = env::args().skip(1);
-    let first_path = args.next().ok_or_else(usage_failure)?;
+    let first_arg = args.next().ok_or_else(usage_failure)?;
+    let (strict, first_path) = if first_arg == "--require-compatibility" {
+        (true, args.next().ok_or_else(usage_failure)?)
+    } else {
+        (false, first_arg)
+    };
     let second_path = args.next().ok_or_else(usage_failure)?;
     if args.next().is_some() {
         return Err(usage_failure());
@@ -44,8 +49,12 @@ fn run() -> Result<String, (Failure, i32)> {
 
     let first = read_report(&first_path, "first")?;
     let second = read_report(&second_path, "second")?;
-    let verification = verify_match_reports(&first, &second)
-        .map_err(|error| (Failure::new(error.code(), error.to_string()), 1))?;
+    let verification = if strict {
+        verify_playable_match_reports(&first, &second)
+    } else {
+        verify_match_reports(&first, &second)
+    }
+    .map_err(|error| (Failure::new(error.code(), error.to_string()), 1))?;
     serde_json::to_string(&verification).map_err(|_| {
         (
             Failure::new("internal_error", "failed to serialize verification result"),
@@ -63,7 +72,7 @@ fn usage_failure() -> (Failure, i32) {
     (
         Failure::new(
             "usage",
-            "usage: opencade-match-verify FIRST_REPORT.json SECOND_REPORT.json",
+            "usage: opencade-match-verify [--require-compatibility] FIRST_REPORT.json SECOND_REPORT.json",
         ),
         2,
     )

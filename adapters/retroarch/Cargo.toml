@@ -1,0 +1,13 @@
+[package]
+name = "opencade-adapter-retroarch"
+version = "0.1.0"
+edition = "2024"
+description = "OpenCade process-boundary adapter for user-supplied RetroArch and FBNeo core"
+license = "Apache-2.0"
+repository = "https://github.com/opencade/opencade"
+rust-version = "1.98"
+
+[dependencies]
+opencade-emulator-sdk = { path = "../../packages/emulator-sdk" }
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11.0"

@@ -35,6 +35,9 @@ pub enum AppError {
 
     #[error("version unsupported: {0}")]
     VersionUnsupported(String),
+
+    #[error("rate limited: {0}")]
+    RateLimited(String),
 }
 
 impl AppError {
@@ -48,6 +51,7 @@ impl AppError {
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::VersionUnsupported(_) => StatusCode::BAD_REQUEST,
+            AppError::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 
@@ -61,6 +65,7 @@ impl AppError {
             AppError::Conflict(_) => "conflict",
             AppError::Internal(_) => "internal",
             AppError::VersionUnsupported(_) => "version_unsupported",
+            AppError::RateLimited(_) => "rate_limited",
         }
     }
 
@@ -73,7 +78,8 @@ impl AppError {
             | AppError::NotFound(m)
             | AppError::Conflict(m)
             | AppError::Internal(m)
-            | AppError::VersionUnsupported(m) => m.clone(),
+            | AppError::VersionUnsupported(m)
+            | AppError::RateLimited(m) => m.clone(),
         }
     }
 
@@ -146,6 +152,10 @@ mod tests {
         assert_eq!(
             AppError::VersionUnsupported("x".into()).status_code(),
             StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            AppError::RateLimited("x".into()).status_code(),
+            StatusCode::TOO_MANY_REQUESTS
         );
     }
 

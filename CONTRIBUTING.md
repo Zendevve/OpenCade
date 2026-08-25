@@ -88,7 +88,7 @@ opencade/
 │   ├── fbneo/             # FBNeo adapter (first adapter)
 │   └── mame/              # (future)
 ├── services/
-│   └── relay/             # opencade-relay (TURN-like fallback)
+│   └── relay/             # authenticated readiness-probe WebSocket fallback
 ├── research/              # NOT SHIPPED — observations only (see GUARDRAILS.md)
 ├── docs/
 ├── docker/

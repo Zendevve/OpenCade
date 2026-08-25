@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { RoomPayload } from "@opencade/protocol";
-import { matchParticipants, parseMatchCompletion, parseMatchEndpoint } from "./match";
+import {
+  matchParticipants,
+  nativeLanEndpoint,
+  parseMatchCompletion,
+  parseMatchEndpoint,
+} from "./match";
 
 const room = (guestId: string | null = "guest"): RoomPayload => ({
   id: "room-1",
@@ -92,5 +97,12 @@ describe("parseMatchCompletion", () => {
 
   it("rejects incomplete peer results", () => {
     expect(parseMatchCompletion({ room_id: "room-1", frames_received: "60" })).toBeUndefined();
+  });
+});
+
+describe("nativeLanEndpoint", () => {
+  it("preserves the verified host and selects the RetroArch TCP port", () => {
+    expect(nativeLanEndpoint("192.168.1.20:42000")).toBe("192.168.1.20:55435");
+    expect(nativeLanEndpoint("[::1]:42000")).toBe("[::1]:55435");
   });
 });

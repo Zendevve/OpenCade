@@ -8,11 +8,11 @@
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
-OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository now contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch boundary, direct UDP transport, and an evidence-gated STUN/hole-punch path. FBNeo netplay, physical cross-NAT results, behavior classification, and relay fallback remain explicitly unproven and are not advertised as implemented.
+OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch, direct UDP/STUN/hole-punching, authenticated readiness-probe relay fallback, and an experimental native-process RetroArch adapter. Standalone FBNeo netplay, physical cross-NAT results, behavior classification, and real two-machine RetroArch play remain explicitly unproven.
 
 ## Support — keep it community-owned
 
-OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, deterministic transport, STUN discovery, and bounded hole punching run today. What remains is physical network evidence, relay fallback, and the emulator seam — expensive, unglamorous systems work that determines whether matches actually connect.
+OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, deterministic transport, STUN discovery, bounded hole punching, authenticated relay fallback, and an experimental user-supplied RetroArch process boundary run today. What remains is physical two-Windows Proof-of-Play evidence and production release hardening.
 
 **[☕ Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — one coffee keeps the relay and adapter work open. No paywall, no premium.
 
@@ -40,7 +40,7 @@ curl http://localhost:8080/health
 docker compose logs -f opencade-server
 ```
 
-This starts `opencade-server` and PostgreSQL. The server applies committed SQLx migrations before it begins serving. A relay service is intentionally deferred.
+This starts `opencade-server`, PostgreSQL, and the authenticated readiness-probe relay. The server applies committed SQLx migrations before it begins serving.
 
 ```bash
 # stop
@@ -90,8 +90,10 @@ OpenCade/
 │   ├── networking/             # Bounded input frames, deterministic in-memory + direct UDP transports
 │   └── shared/                 # Cross-cutting utils, logging, config
 ├── adapters/
-│   └── fbneo/                  # FBNeo reference adapter (first implementation)
-├── services/                   # Reserved for a future relay service
+│   ├── fbneo/                  # Standalone FBNeo local-play adapter
+│   └── retroarch/              # Experimental native-process netplay adapter
+├── services/                   # Authenticated bounded readiness-probe relay
+├── scripts/alpha/              # Windows alpha-kit packager, verifier, doctor, and launcher
 ├── research/                   # OBSERVATIONS ONLY — never shipped (see Clean-Room Notice)
 │   ├── observations/           # Dated, factual notes from black-box behavior
 │   ├── protocol/               # Captured message field notes (no replay)
@@ -141,11 +143,12 @@ High-level: `Client (Tauri)` ↔ `Server (Axum REST + authenticated WebSocket)` 
 
 - **Server:** auth (Argon2id), hashed sessions, games, server hints, lobbies, durable challenges,
   rooms/matches, and authenticated WebSocket signaling (`offer`/`answer`/`candidate`).
-- **Networking:** deterministic in-memory and connected UDP transports, RFC 8489 reflexive-address
-  discovery, and bounded nonce-bound hole punching are implemented. Cone/symmetric behavior
-  classification and relay fallback remain deferred pending physical campaign evidence.
+- **Networking:** deterministic in-memory, direct UDP, RFC 8489 discovery, nonce-bound hole punching,
+  and a short-lived room-member-ticket WebSocket relay are implemented. Physical cross-NAT evidence
+  and cone/symmetric behavior classification remain pending.
 - **Client:** login/register, games, lobby challenges, match state, local availability scan, diagnostics, and redacted report export; Rust core owns process spawn, filesystem validation, and diagnostics.
-- **Emulator SDK:** trait-based adapters with safe process launch (no shell injection, argument escaping), ROM validation, and game-definition TOML.
+- **Emulator SDK:** explicit OpenCade/native/blocked netplay modes, safe process launch, ROM validation,
+  game-definition TOML, and an experimental user-supplied RetroArch + FBNeo-core adapter.
 
 Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
@@ -161,7 +164,7 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 | **M3** | Client Shell          | Tauri + React shell, routing (Games/Lobbies/Friends/Servers/Settings), Rust fs/process/logging                                         | Client launches, talks to server, diagnostics panel           |
 | **M4** | Emulator SDK          | Adapter trait (`detect`/`validate`/`getVersion`/`launch`/`stop`/`configure`/`getSupportedGames`), FBNeo adapter, TOML game definitions | Local ROM scan + safe launch for one title                    |
 | **M5** | Matchmaking           | Lobbies, game versions, server browser, matchmaking & room lifecycle                                                                   | Create/join/spectate room e2e with two peers                  |
-| **M6** | NAT & Relay           | STUN, hole-punching, `opencade-relay` TURN fallback, RTT/loss/jitter, Network Test                                                     | Direct + relayed matches measured; relay Docker image         |
+| **M6** | NAT & Relay           | STUN, hole-punching, authenticated `opencade-relay` WebSocket fallback, RTT/loss/jitter, Network Test                                  | Direct + relayed matches measured; relay Docker image         |
 | **M7** | MVP Release           | Hardening, bans/reports, replay hooks, packaging, docs                                                                                 | Tagged MVP, signed artifacts, no proprietary content          |
 
 ---

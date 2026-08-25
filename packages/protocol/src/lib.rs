@@ -18,6 +18,9 @@ pub const PROTOCOL_VERSION: &str = "1.0";
 /// Canonical schema version for redacted LAN alpha evidence reports.
 pub const MATCH_REPORT_SCHEMA_VERSION: u8 = 1;
 
+/// Canonical schema version for redacted alpha failure evidence.
+pub const ALPHA_FAILURE_REPORT_SCHEMA_VERSION: u8 = 1;
+
 /// Returns `true` if the supplied version string is supported.
 ///
 /// Accepts both canonical `"1.0"` and compat `"1"`.
@@ -221,6 +224,7 @@ pub enum MatchReportRole {
 #[serde(rename_all = "snake_case")]
 pub enum MatchReportTransport {
     DirectUdp,
+    Relay,
 }
 
 /// Privacy-minimized room correlation included in an alpha report.
@@ -255,6 +259,54 @@ pub struct MatchReportClient {
     pub user_agent: String,
 }
 
+/// Optional, privacy-safe hashes that let both peers prove identical native emulator inputs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReportCompatibility.ts")]
+pub struct MatchReportCompatibility {
+    pub adapter: String,
+    pub emulator_version: Option<String>,
+    pub executable_sha256: String,
+    pub core_sha256: String,
+    pub content_sha256: String,
+}
+
+/// Stable stages for privacy-minimized evidence from an abandoned alpha attempt.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/AlphaFailureStage.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum AlphaFailureStage {
+    EndpointReservation,
+    DirectUdp,
+    RelayTicket,
+    Relay,
+    PeerTranscript,
+    RoomTransition,
+    NativeLaunch,
+}
+
+/// Discriminator that keeps failure evidence distinct from successful match reports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/AlphaEvidenceKind.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum AlphaEvidenceKind {
+    AttemptFailure,
+}
+
+/// Canonical redacted evidence for an alpha attempt that did not complete.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/AlphaFailureReport.ts")]
+pub struct AlphaFailureReport {
+    pub schema_version: u8,
+    pub kind: AlphaEvidenceKind,
+    pub exported_at: DateTime<Utc>,
+    pub room: MatchReportRoom,
+    pub role: MatchReportRole,
+    pub stage: AlphaFailureStage,
+    pub error_code: String,
+    pub transport: Option<MatchReportTransport>,
+    pub client: MatchReportClient,
+}
+
 /// Canonical, redacted evidence emitted by both the desktop and standalone LAN probe.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[ts(export, export_to = "../src/generated/MatchReport.ts")]
@@ -264,6 +316,8 @@ pub struct MatchReport {
     pub room: MatchReportRoom,
     pub probe: MatchReportProbe,
     pub client: MatchReportClient,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<MatchReportCompatibility>,
 }
 /// Room lifecycle states. Serialized as `snake_case` strings.
 /// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);

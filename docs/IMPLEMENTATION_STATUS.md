@@ -7,6 +7,9 @@ Updated 2026-08-25.
 - Composed Axum runtime with automatic SQLx migrations, liveness/readiness, strict production
   configuration, scoped CORS, and redacted errors.
 - Argon2 registration/login, hashed opaque sessions, revocation, authenticated REST and WebSocket.
+- Per-identity and bounded global authentication throttles, equal-cost unknown-user password work,
+  operating-system credential storage for desktop sessions, and a production CSP that requires TLS
+  for non-loopback control planes.
 - Durable addressed challenges with ownership rules; transactional room and match lifecycle.
 - Bounded/rate-limited WebSocket signaling restricted to authenticated room members with correlated
   acknowledgements and errors.
@@ -24,9 +27,25 @@ Updated 2026-08-25.
 - RFC 8489 reflexive-address discovery and bounded authenticated UDP hole punching on the same
   reserved socket, with host/reflexive candidate evidence in redacted reports.
 - A fail-closed campaign summarizer that derives the 8-of-10 alpha gate and compatibility matrix
-  from paired reports.
+  from paired reports, separating direct-UDP and authenticated-relay outcomes.
+- Privacy-minimized failure evidence for endpoint, relay, transcript, room-transition, and native
+  launch failures, so abandoned rooms count against the campaign instead of disappearing.
 - A standalone `opencade-relay` service with health/readiness routes and bounded room forwarding,
   plus server-provided STUN hints and 30-sample latency metrics.
+- Short-lived HMAC relay tickets issued only to active room members, immutable room scoping,
+  two-peer limits, bounded queues/frames, and automatic desktop readiness-probe fallback.
+- A process-boundary RetroArch + FBNeo-core adapter with explicit `NativeProcess` capability,
+  safe host/guest argument construction, and SHA-256 executable/core/content fingerprints.
+- Server-derived one-use native launch grants, exactly-two-player rooms, a deterministic client
+  match coordinator, supervised/reaped child processes, and launch/exit-backed room transitions.
+- A truthful route gate: same-LAN host candidates may launch the RetroArch TCP alpha; UDP reflexive
+  and relay results are readiness-only until a native transport bridge exists.
+- Strict playable-report verification that requires matching, well-formed native compatibility
+  fingerprints (`opencade-match-verify --require-compatibility`).
+- Runtime-configurable desktop server/STUN endpoints and a CI-built Windows desktop alpha executable
+  with SHA-256 checksums alongside the probe/verifier/summarizer tools.
+- A flat Windows alpha kit with a CI-exercised PowerShell packager/verifier, machine doctor,
+  runtime configuration launcher, and dedicated report directory.
 - Desktop network diagnostics backed by real RFC 8489 Binding when a STUN endpoint is configured,
 - A deterministic two-peer `MockAdapter` + `InMemoryPeer` proof-of-match scenario that drives
   the full 60-frame deterministic transcript and emits canonical redacted `MatchReport`
@@ -37,11 +56,12 @@ Updated 2026-08-25.
 
 ## Deliberately not claimed
 
-- FBNeo netplay. The adapter reports `BlockedNoPublicInterface`; ADR 0002 records the public-source
-  feasibility result and exit criteria.
-- Cone/symmetric NAT behavior classification and proven relay fallback. One RFC 8489 Binding response is
+- Standalone FBNeo netplay. That adapter reports `BlockedNoPublicInterface`; ADR 0002 records the
+  public-source feasibility result. The separate RetroArch native-process path has no physical
+  two-machine evidence yet and remains experimental under ADR 0003.
+- Cone/symmetric NAT behavior classification and physically proven relay fallback. One RFC 8489 Binding response is
   deliberately reported only as `open`, `mapped`, or `unknown`.
 - TURN allocation and production STUN/TURN deployment.
-- Production packaging/signing, friends/chat/rankings/replays, or a public MVP release.
+- Production installer packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.

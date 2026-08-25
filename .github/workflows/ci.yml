@@ -118,6 +118,7 @@ jobs:
         run: docker compose config
         env:
           SESSION_SECRET: ci-compose-secret-at-least-32-bytes
+          RELAY_AUTH_SECRET: ci-relay-secret-at-least-32-bytes-long
 
   desktop:
     name: Desktop Rust (Windows / MSRV)
@@ -149,15 +150,34 @@ jobs:
       - name: Build Windows LAN alpha tools
         run: cargo build -p opencade-networking --bins --release --locked
 
+      - name: Build Windows desktop alpha
+        run: cargo build --manifest-path apps/client/src-tauri/Cargo.toml --release --locked
+
+      - name: Package and verify Windows alpha kit
+        shell: pwsh
+        run: .\scripts\alpha\OpenCade-Alpha.ps1 -Mode Package -KitRoot alpha-kit
+
+      - name: Alpha kit verifier rejects tampering
+        shell: pwsh
+        run: |
+          Copy-Item alpha-kit alpha-kit-tampered -Recurse
+          Add-Content -LiteralPath alpha-kit-tampered\opencade-client.exe -Value "tampered"
+          $failedClosed = $false
+          try {
+            .\scripts\alpha\OpenCade-Alpha.ps1 -Mode Verify -KitRoot alpha-kit-tampered
+          } catch {
+            $failedClosed = $true
+          }
+          if (-not $failedClosed) {
+            throw "Alpha kit verifier accepted a tampered executable"
+          }
+
       - name: Upload Windows LAN alpha tools
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: opencade-lan-tools-windows
-          path: |
-            target/release/opencade-match-probe.exe
-            target/release/opencade-match-verify.exe
-            target/release/opencade-alpha-summary.exe
+          name: opencade-windows-alpha
+          path: alpha-kit
           if-no-files-found: error
           retention-days: 14
 

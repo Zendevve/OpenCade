@@ -2,7 +2,7 @@
 name = "opencade-shared"
 version = "0.1.0"
 edition = "2024"
-description = "OpenCade shared utilities (placeholder)"
+description = "OpenCade shared security and service utilities"
 license = "Apache-2.0"
 repository = "https://github.com/opencade/opencade"
 rust-version = "1.98"
@@ -10,3 +10,6 @@ rust-version = "1.98"
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
+hmac = "0.13.0"
+sha2 = "0.11.0"
+hex = "0.4.3"

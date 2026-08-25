@@ -136,7 +136,7 @@ flowchart TB
         UI[React Router<br/>Games / Lobbies / Friends<br/>Servers / Settings]
         TAURI[Tauri Rust Core<br/>process / fs / logging<br/>permissions — no shell]
         SDK_RT[packages/emulator-sdk<br/>runtime + adapter host]
-        ADAPTER[adapters/fbneo<br/>FBNeo adapter]
+        ADAPTER[adapters/fbneo + retroarch<br/>local + native-process adapters]
         NET_C[packages/networking<br/>signaling client<br/>NAT traversal]
         PROTO_C[packages/protocol<br/>typed envelope]
     end
@@ -151,7 +151,7 @@ flowchart TB
     end
 
     subgraph Relay["services/relay — opencade-relay"]
-        RELAY_WS[WS relay placeholder<br/>TURN-like fallback]
+        RELAY_WS[authenticated WS readiness relay<br/>signed room-member tickets]
     end
 
     subgraph External["External / Local"]
@@ -184,10 +184,10 @@ flowchart TB
     OBS --- WS
 
     classDef placeholder fill:#2a2a2a,stroke:#888,stroke-dasharray: 6 4,color:#ccc
-    class RELAY_WS,OBS placeholder
+    class OBS placeholder
 ```
 
-**Data flow:** Client authenticates via REST, opens a single WS at `/ws` for presence/lobby/chat/signaling. Matchmaking creates a `room`; signaling exchanges `offer/answer/candidate` through the server (in-process WS relay in MVP). Peers then attempt direct UDP → hole-punch → STUN; on failure they fall back to WS relay (`services/relay` placeholder, promoted to TURN later). Emulator launch is local, via the SDK adapter, after the SDK validates ROM/bios presence.
+**Data flow:** Client authenticates via REST and opens one room-scoped control WebSocket. Matchmaking creates a room and exchanges host/reflexive candidates. Peers attempt the reserved direct UDP socket first; a failed readiness probe requests a two-minute signed room-member ticket and uses the bounded WebSocket relay. Emulator launch remains local. Standalone FBNeo is local-play only; the experimental RetroArch adapter launches a user-supplied external process whose documented native netplay owns its own data plane.
 
 ---
 
@@ -255,15 +255,10 @@ D:/OpenCade/
 │   └── shared/                  # cross-cutting TS/Rust utilities, result types
 │       └── src/
 ├── adapters/
-│   └── fbneo/                   # FBNeo adapter — first implementation
-│       ├── src/
-│       │   ├── mod.rs / index.ts
-│       │   ├── detect.rs
-│       │   ├── validate.rs
-│       │   └── launch.rs
-│       └── Cargo.toml / package.json
+│   ├── fbneo/                   # local-launch adapter; netplay blocked without a public API
+│   └── retroarch/               # user-supplied RetroArch + FBNeo-core native netplay adapter
 ├── services/
-│   └── relay/                   # opencade-relay — placeholder (WS relay / future TURN)
+│   └── relay/                   # authenticated, bounded readiness-probe WebSocket relay
 │       ├── src/main.rs
 │       ├── Cargo.toml
 │       └── Dockerfile
@@ -296,14 +291,20 @@ All paths are relative to `D:/OpenCade`. No file from `D:/Fightcade` appears in 
 **Winner: B-Modular grafted with A and C.**
 
 - **B (modular monorepo)** provides the package boundaries (`protocol`, `emulator-sdk`, `game-definitions`, `networking`, `shared`, `adapters/fbneo`) and the `apps/*` / `services/*` split. This is the dominant structure.
-- **Graft A (single Axum monolith, Postgres-only, WS in-process relay)** constrains the server: one deployable (`apps/server`), one database (PostgreSQL), no Redis in MVP, WebSocket relay lives inside the Axum process as the fallback path. Keeps ops trivial and eliminates distributed-state bugs early.
-- **Graft C (Docker Compose, observability placeholder, opencade-relay placeholder)** adds the deployment and operational shell: `docker-compose.yml` at root with `db + opencade-server` active and `opencade-relay` commented as placeholder, structured logging / tracing / metrics placeholders, and a relay service stub that can be promoted to a real TURN server without re-architecture.
+- **Graft A (single Axum control plane, Postgres-only)** constrains the server: one control-plane
+  deployable (`apps/server`), one database (PostgreSQL), and no Redis in MVP.
+- **Graft C (Docker Compose, observability shell, bounded relay)** adds the deployment and
+  operational shell: `docker-compose.yml` runs the database, control plane, and a separate
+  authenticated WebSocket readiness relay. The relay is deliberately not represented as TURN.
 
 Consequences:
 
-- MVP has **two active containers**: `db` (`postgres:16-alpine`) + `opencade-server` on `8080`; `opencade-relay` is present as a commented placeholder behind the same `/ws` fallback (peers prefer direct UDP) until M6.
-- No Redis, no separate signaling service, no message queue in MVP. If load demands it, the WS relay and presence can be extracted _behind the same protocol_ — envelope versioning guarantees compatibility.
-- `services/relay` is a real crate/binary from day one so `docker-compose.yml` and CI can wire it; its implementation is `TODO(relay): WS echo fallback` until M5/M6 (currently commented in compose).
+- MVP has **three active containers**: `db` (`postgres:16-alpine`), `opencade-server` on `8080`,
+  and `opencade-relay` on `8081`; peers still prefer direct UDP.
+- No Redis, no separate signaling service, and no message queue in MVP. Presence remains in the
+  control plane; bounded readiness frames alone can use the relay fallback.
+- The relay accepts only short-lived room-member tickets issued by the control plane, limits rooms
+  to two users and bounded frames, and does not relay RetroArch's native netplay socket.
 
 ---
 
@@ -440,14 +441,18 @@ Heartbeat: client pings every 20s (`{type:"ping"}`), server replies `pong`; miss
 
 ```
 WAITING ──(host creates)──► WAITING
-WAITING ──(peer joins)─────► READY
-READY   ──(host starts)────► PLAYING
-READY   ──(peer leaves)────► WAITING
-PLAYING ──(finish)─────────► FINISHED
+WAITING|CHALLENGING ──(challenge accepted)──► CONNECTING
+CONNECTING ──(both authorized native processes launch)──► PLAYING
+PLAYING ──(both native processes exit)──────────────────► FINISHED
+CONNECTING ──(a launched process exits before peer)─────► CANCELLED
 *       ──(host cancels / timeout / all leave)──► CANCELLED
 ```
 
-States stored in `rooms.state` (`WAITING | READY | PLAYING | FINISHED | CANCELLED`). Transitions are server-authoritative; clients optimistically render but must accept `room.state` pushes.
+States stored in `rooms.state` (`WAITING | READY | CHALLENGING | CONNECTING | PLAYING | FINISHED |
+CANCELLED`). Alpha rooms have exactly two members. Transitions are server-authoritative and backed by
+per-participant native launch/exit records; a successful UDP readiness probe never advances room
+state. Native launch descriptors are derived from short-lived, hashed, one-use server grants. See
+ADR 0004.
 
 Challenge flow: `challenge.create` → server creates `challenge` row (ephemeral, in `rooms` or separate `challenges` if needed) → pushes `challenge.create` to target → target `challenge.accept/decline` → on accept, server creates/moves to `room` and emits `room.state: READY`.
 
@@ -641,9 +646,21 @@ All three types carry `envelope.version = 1` and are validated: `roomId` must ex
 A single Binding server cannot honestly distinguish cone from symmetric behavior. Diagnostics and
 reports therefore use `unknown | open | mapped | blocked`: `open` means the reflexive address equals
 the advertised host address, while `mapped` only proves translation occurred. RFC 5780 behavior
-discovery and a relay fallback remain deferred until physical campaign evidence justifies them.
+discovery remains deferred. Authenticated WebSocket readiness-probe relay fallback is implemented,
+but it is not considered physically proven until the campaign in `docs/alpha/LAN_TEST.md` passes.
 
-### 10.3 Latency — RTT / loss / jitter
+### 10.3 Authenticated readiness relay
+
+An active room member requests `POST /api/v1/rooms/:id/relay-ticket`. The server issues a
+HMAC-SHA256 capability valid for two minutes. `opencade-relay` verifies the signature and expiry,
+fixes the connection to the signed room/user, permits at most two distinct users, uses bounded
+64-message queues, and rejects frames above 64 KiB. Text frames must be valid versioned envelopes
+whose payload room matches the signed room; bounded binary probe frames remain opaque.
+
+This relay carries OpenCade readiness frames. It is not TURN and does not relay RetroArch's native
+TCP netplay connection.
+
+### 10.4 Latency — RTT / loss / jitter
 
 `packages/networking/src/latency.ts`:
 
@@ -655,47 +672,14 @@ Exposed via `diagnose_network` Tauri command and rendered in `/servers` and `/di
 
 ---
 
-## 11. Emulator SDK — packages/emulator-sdk + adapters/fbneo
+## 11. Emulator SDK — packages/emulator-sdk + adapters/fbneo + adapters/retroarch
 
 ### 11.1 Trait — `EmulatorAdapter`
 
-```rust
-// packages/emulator-sdk/src/adapter.rs
-#[async_trait]
-pub trait EmulatorAdapter: Send + Sync {
-    fn id(&self) -> &str;                                   // "fbneo"
-    fn display_name(&self) -> &str;                          // "FBNeo"
-    async fn detect(&self) -> Result<DetectedEmulator>;      // find binary on disk
-    async fn validate(&self, game: &GameDefinition) -> ValidationReport;
-    async fn get_version(&self) -> Result<String>;           // e.g. "0.2.97.44"
-    async fn launch(&self, ctx: LaunchContext) -> Result<LaunchedProcess>;
-    async fn stop(&self, handle: LaunchedProcess) -> Result<()>;
-    async fn configure(&self, cfg: EmulatorConfig) -> Result<()>;
-    fn get_supported_games(&self) -> &[String];              // from game-definitions
-}
-
-pub struct DetectedEmulator { pub path: PathBuf, pub version: Option<String> }
-pub struct ValidationReport { pub ok: bool, pub missing: Vec<String> }
-pub struct LaunchContext { pub game: GameDefinition, pub rom_path: PathBuf, pub args: Vec<String> }
-pub struct LaunchedProcess { pub pid: u32, pub handle: Child }
-```
-
-```ts
-// packages/emulator-sdk/src/adapter.ts — TS mirror for the UI layer
-export interface EmulatorAdapter {
-  id: string;
-  displayName: string;
-  detect(): Promise<DetectedEmulator>;
-  validate(game: GameDefinition): Promise<ValidationReport>;
-  getVersion(): Promise<string>;
-  launch(ctx: LaunchContext): Promise<LaunchedProcess>;
-  stop(handle: LaunchedProcess): Promise<void>;
-  configure(cfg: EmulatorConfig): Promise<void>;
-  getSupportedGames(): string[];
-}
-```
-
-`detect()` scans well-known locations (`emulator/fbneo/fcadefbneo.exe` on Windows, `~/.opencade/emulators/fbneo/` on all platforms, plus user-configured path in Settings). `getVersion()` parses the binary's version string or a sidecar `version.txt`.
+The synchronous adapter trait owns detection, validation, safe local launch, optional match
+preparation, native-process match launch, and shutdown. `AdapterCapabilities` makes the netplay data
+plane explicit: `OpenCadeFrames`, `NativeProcess`, or `BlockedNoPublicInterface`. A successful local
+launch can therefore never be mistaken for netplay support.
 
 ### 11.2 Safe launch
 
@@ -723,6 +707,14 @@ Implements `EmulatorAdapter` for `emulator/fbneo/fcadefbneo.exe` (FBNeo 0.2.97.4
 - `launch` — renders `launch.args` template, validates ROM presence, spawns via `build_command`.
 
 Future adapters (`flycast`, `snes9x`) implement the same trait; no SDK change required.
+
+### 11.4 adapters/retroarch — experimental Proof of Play
+
+The RetroArch adapter requires a user-supplied executable, FBNeo Libretro core, and ROM below one
+configured root. It constructs documented host/guest arguments without a shell and computes SHA-256
+fingerprints for the executable, core, and content. See ADR 0003. CI never redistributes emulator
+software, and the adapter remains experimental until `docs/alpha/RETROARCH_TEST.md` passes on two
+physical Windows machines.
 
 ---
 
@@ -832,7 +824,10 @@ Placeholder in MVP, real wiring without re-architecture.
 
 ### 16.1 docker-compose.yml (root)
 
-Canonical compose is `docker-compose.yml` at repo root (mirrored under `docker/` if present). Active services: `db` (`postgres:16-alpine`) + `opencade-server` on `8080`. `opencade-relay` is commented as placeholder until `services/relay` implements the TURN relay (M6).
+Canonical compose is `docker-compose.yml` at repo root. Active services are PostgreSQL,
+`opencade-server` on `8080`, and the authenticated WebSocket readiness relay on `8081`. The server
+and relay receive the same independently generated `RELAY_AUTH_SECRET`; it must differ from the
+session secret.
 
 ```yaml
 # docker-compose.yml — active
@@ -866,17 +861,18 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
 
-  # opencade-relay: TURN/relay placeholder for future M6.
-  # Uncomment when services/relay implements the relay binary.
-  # relay:
-  #   image: opencade-relay:local
-  #   ports: ["3478:3478", "3478:3478/udp"]
+  relay:
+    image: opencade-relay:local
+    environment:
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET}
+    ports: ["8081:8081"]
 
 volumes:
   pgdata:
 ```
 
-Archival example with explicit relay (when enabled) listens on `3478`/`3478/udp` and proxies `SERVER_URL: http://opencade-server:8080`; until then in-process WS relay in `apps/server` is the fallback (`services/relay` placeholder, promoted to TURN later).
+The relay is a WebSocket service, not a STUN or TURN listener. STUN remains an independently
+configured RFC 8489 service.
 
 ### 16.2 Dockerfiles
 
@@ -889,16 +885,16 @@ No `docker-compose.override.yml` in repo; devs create it locally if needed.
 
 ## 17. Phases M0–M7 — Exit Criteria
 
-| Phase  | Name                    | Exit Criteria                                                                                                                                                                                                                                                                                                                                                                            |
-| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **M0** | Bootstrap               | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `opencade-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts.                                                                                                                                                                              |
-| **M1** | Protocol & DB           | `packages/protocol` envelope round-trips Rust↔TS, migrations create all tables in §9, seed from `game-definitions` inserts ≥1 game, `cargo test` + `pnpm test` pass.                                                                                                                                                                                                                     |
-| **M2** | Auth & REST             | `POST /auth/register`, `/login`, `/logout`, `GET /auth/me` work with Argon2id + opaque sessions, `GET /games`, `/servers`, `/lobbies` return seeded data, auth middleware rejects unauthenticated calls with `401`, rate limiting enforced.                                                                                                                                              |
-| **M3** | Client shell            | Tauri app launches, React Router renders all routes in §6.2 with mocked data, `tauri.conf.json` has no `shell` permission, `diagnose_*` commands return stub reports, `pnpm tauri dev` works on Windows.                                                                                                                                                                                 |
-| **M4** | Emulator SDK + FBNeo    | `EmulatorAdapter` trait implemented for `fbneo`, `detect` finds `fcadefbneo.exe`, `validate` reports missing `neogeo.zip` correctly, `launch` spawns with no shell and per-arg escaping, `game-definitions` TOML `schema_version=1` validates, local scan marks games present/missing, safe-launch tests prove no injection.                                                             |
-| **M5** | Networking & Relay      | WS `/ws` envelope works end-to-end, `signaling.offer/answer/candidate` relay through server, room state machine `WAITING→READY→PLAYING→FINISHED/CANCELLED` holds under concurrent joins, NAT fallback order verified (direct UDP → hole-punch → STUN → WS relay), `diagnose_network` reports `rtt/loss/jitter`, `services/relay` placeholder wired in Compose, `Network Test` UI passes. |
-| **M6** | Lobbies, Presence, Chat | Presence `online/away/in-game` broadcasts, `chat.message` fans out to room/lobby, `challenge.create/accept/decline/cancel` flow creates a `READY` room on accept, `reports` + `bans` enforced (banned user gets `403`), end-to-end challenge→room→signaling demo with two clients.                                                                                                       |
-| **M7** | Hardening & Ship        | `docker compose up --build` from clean clone, `tracing` JSON logs + `/metrics` + `/health`, `tauri-plugin-log` rotation, no secret in repo, `research/` excluded from `cargo package`/`tauri build`, load test: 100 concurrent WS, 20 rooms, p95 REST < 100 ms, docs complete, `CHANGELOG.md` cut.                                                                                       |
+| Phase  | Name                    | Exit Criteria                                                                                                                                                                                                                                                                                                                |
+| ------ | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M0** | Bootstrap               | Monorepo builds (`cargo check`, `pnpm build`), `docker compose up` brings `postgres` + `opencade-server` (empty), `GET /health` returns `ok`, `research/` exists and is gitignored from shipping artifacts.                                                                                                                  |
+| **M1** | Protocol & DB           | `packages/protocol` envelope round-trips Rust↔TS, migrations create all tables in §9, seed from `game-definitions` inserts ≥1 game, `cargo test` + `pnpm test` pass.                                                                                                                                                         |
+| **M2** | Auth & REST             | `POST /auth/register`, `/login`, `/logout`, `GET /auth/me` work with Argon2id + opaque sessions, `GET /games`, `/servers`, `/lobbies` return seeded data, auth middleware rejects unauthenticated calls with `401`, rate limiting enforced.                                                                                  |
+| **M3** | Client shell            | Tauri app launches, React Router renders all routes in §6.2 with mocked data, `tauri.conf.json` has no `shell` permission, `diagnose_*` commands return stub reports, `pnpm tauri dev` works on Windows.                                                                                                                     |
+| **M4** | Emulator SDK + FBNeo    | `EmulatorAdapter` trait implemented for `fbneo`, `detect` finds `fcadefbneo.exe`, `validate` reports missing `neogeo.zip` correctly, `launch` spawns with no shell and per-arg escaping, `game-definitions` TOML `schema_version=1` validates, local scan marks games present/missing, safe-launch tests prove no injection. |
+| **M5** | Networking & Relay      | WS `/ws` envelope works end-to-end, room membership scopes signaling, the room state machine holds under concurrent joins, direct UDP/STUN/hole-punching and signed-ticket relay fallback pass automated tests, `diagnose_network` reports `rtt/loss/jitter`, and physical results remain evidence-gated.                    |
+| **M6** | Lobbies, Presence, Chat | Presence `online/away/in-game` broadcasts, `chat.message` fans out to room/lobby, `challenge.create/accept/decline/cancel` flow creates a `READY` room on accept, `reports` + `bans` enforced (banned user gets `403`), end-to-end challenge→room→signaling demo with two clients.                                           |
+| **M7** | Hardening & Ship        | `docker compose up --build` from clean clone, `tracing` JSON logs + `/metrics` + `/health`, `tauri-plugin-log` rotation, no secret in repo, `research/` excluded from `cargo package`/`tauri build`, load test: 100 concurrent WS, 20 rooms, p95 REST < 100 ms, docs complete, `CHANGELOG.md` cut.                           |
 
 No phase is considered done until its exit criteria are demonstrated on a clean machine (`git clone` → `docker compose up` → `pnpm tauri dev`).
 
