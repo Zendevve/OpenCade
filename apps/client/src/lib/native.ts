@@ -58,6 +58,7 @@ export type NativeTunnelTicket = {
   room_id: string;
   user_id: string;
   expires_at: number;
+  nonce: string;
   capability: "native_tcp_tunnel";
   signature: string;
 };
@@ -98,8 +99,6 @@ export async function stopGame(pid: number): Promise<void> {
 }
 
 export async function launchRetroarchMatch(request: {
-  api_url: string;
-  session_token: string;
   launch_grant: string;
 }): Promise<RetroarchMatchLaunch> {
   if (!isDesktopRuntime()) throw new Error("RetroArch netplay requires the desktop client");
@@ -179,6 +178,7 @@ export async function runRelayMatchProbe(request: {
     room_id: string;
     user_id: string;
     expires_at: number;
+    nonce: string;
     signature: string;
   };
   room_id: string;

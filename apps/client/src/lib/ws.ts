@@ -11,6 +11,7 @@ export class OpenCadeSocket {
   private socket: WebSocket | null = null;
   private attempt = 0;
   private stopped = false;
+  private reconnectTimer: number | null = null;
   private listeners = new Set<MessageListener>();
   private pending = new Map<
     string,
@@ -24,12 +25,22 @@ export class OpenCadeSocket {
   ) {}
 
   connect(): void {
+    if (
+      this.socket?.readyState === WebSocket.OPEN ||
+      this.socket?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
     this.stopped = false;
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.open(this.attempt === 0 ? "connecting" : "reconnecting");
   }
 
   close(): void {
     this.stopped = true;
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.socket?.close(1000, "client closed");
     this.socket = null;
     this.rejectPending(new Error("WebSocket closed"));
@@ -57,14 +68,18 @@ export class OpenCadeSocket {
   }
 
   private open(state: ConnectionState): void {
+    if (this.stopped) return;
     this.onState(state);
     const url = new URL("/ws", this.baseUrl.replace(/^http/, "ws"));
-    this.socket = new WebSocket(url, ["opencade.v1", `opencade.auth.${this.token}`]);
-    this.socket.onopen = () => {
+    const socket = new WebSocket(url, ["opencade.v1", `opencade.auth.${this.token}`]);
+    this.socket = socket;
+    socket.onopen = () => {
+      if (this.socket !== socket) return;
       this.attempt = 0;
       this.onState("open");
     };
-    this.socket.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) return;
       if (typeof event.data !== "string") return;
       try {
         const envelope = parseEnvelope(event.data);
@@ -79,12 +94,18 @@ export class OpenCadeSocket {
         // The server owns protocol validation; malformed frames are ignored client-side.
       }
     };
-    this.socket.onclose = () => {
+    socket.onerror = () => socket.close();
+    socket.onclose = () => {
+      if (this.socket !== socket) return;
       this.socket = null;
+      this.rejectPending(new Error("WebSocket connection was lost"));
       if (this.stopped) return;
       const delay = reconnectDelay(this.attempt++);
       this.onState("reconnecting");
-      window.setTimeout(() => this.open("reconnecting"), delay);
+      this.reconnectTimer = window.setTimeout(() => {
+        this.reconnectTimer = null;
+        if (!this.stopped) this.open("reconnecting");
+      }, delay);
     };
   }
 

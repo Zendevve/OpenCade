@@ -2,9 +2,14 @@
 
 mod commands;
 
+use tauri::Manager;
+
 fn main() {
     tracing_subscriber::fmt::init();
-    tauri::Builder::default()
+    let runtime = commands::runtime::RuntimeConfig::from_env()
+        .expect("invalid OpenCade runtime configuration");
+    let app = tauri::Builder::default()
+        .manage(runtime)
         .manage(commands::process::ProcessState::default())
         .manage(commands::match_probe::MatchProbeState::default())
         .manage(commands::tunnel::NativeTunnelState::default())
@@ -26,6 +31,22 @@ fn main() {
             commands::tunnel::start_native_tcp_tunnel,
             commands::tunnel::stop_native_tcp_tunnel,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+    app.run(|handle, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+        ) {
+            handle
+                .state::<commands::process::ProcessState>()
+                .shutdown_all();
+            handle
+                .state::<commands::tunnel::NativeTunnelState>()
+                .shutdown_all();
+            handle
+                .state::<commands::match_probe::MatchProbeState>()
+                .shutdown_all();
+        }
+    });
 }

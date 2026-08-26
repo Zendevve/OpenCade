@@ -1,6 +1,10 @@
 use std::collections::HashSet;
 
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+};
 use opencade_protocol::{
     ActivationSummaryPayload, Envelope, ProductEventName, ProductEventPayload, ReadinessBlockCount,
     ReadinessCheckId,
@@ -79,7 +83,13 @@ pub async fn record_event(
 pub async fn activation_summary(
     State(state): State<AppState>,
     _user: AuthUser,
+    headers: HeaderMap,
 ) -> Result<Json<Envelope<ActivationSummaryPayload>>, AppError> {
+    state.require_operator(
+        headers
+            .get("x-operator-token")
+            .and_then(|value| value.to_str().ok()),
+    )?;
     let row = sqlx::query(
         "WITH windowed AS (
             SELECT anonymous_session_id, event_name, game_id, received_at
@@ -96,6 +106,10 @@ pub async fn activation_summary(
                 FILTER (WHERE windowed.event_name = 'readiness_completed') AS ready_sessions,
             COUNT(DISTINCT selected.anonymous_session_id)
                 FILTER (WHERE windowed.event_name = 'lobby_entered') AS lobby_sessions,
+            COUNT(DISTINCT selected.anonymous_session_id)
+                FILTER (WHERE windowed.event_name = 'launch_attempted') AS launch_attempted_sessions,
+            COUNT(DISTINCT selected.anonymous_session_id)
+                FILTER (WHERE windowed.event_name = 'launch_succeeded') AS launch_succeeded_sessions,
             COUNT(*) FILTER (WHERE windowed.event_name = 'readiness_blocked') AS readiness_blocked_events
          FROM selected
          LEFT JOIN windowed
@@ -110,6 +124,8 @@ pub async fn activation_summary(
     let selected_sessions: i64 = row.try_get("selected_sessions")?;
     let ready_sessions: i64 = row.try_get("ready_sessions")?;
     let lobby_sessions: i64 = row.try_get("lobby_sessions")?;
+    let launch_attempted_sessions: i64 = row.try_get("launch_attempted_sessions")?;
+    let launch_succeeded_sessions: i64 = row.try_get("launch_succeeded_sessions")?;
     let readiness_blocked_events: i64 = row.try_get("readiness_blocked_events")?;
     if selected_sessions < MIN_AGGREGATE_COHORT {
         return Ok(Json(Envelope::new(
@@ -161,9 +177,12 @@ pub async fn activation_summary(
             selected_sessions,
             ready_sessions,
             lobby_sessions,
+            launch_attempted_sessions,
+            launch_succeeded_sessions,
             readiness_blocked_events,
             selected_to_ready_rate: ratio(ready_sessions, selected_sessions),
             selected_to_lobby_rate: ratio(lobby_sessions, selected_sessions),
+            selected_to_launch_rate: ratio(launch_succeeded_sessions, selected_sessions),
             blocked_by_check,
         },
     )))
@@ -219,6 +238,8 @@ fn event_label(event: ProductEventName) -> &'static str {
         ProductEventName::ReadinessCompleted => "readiness_completed",
         ProductEventName::ReadinessBlocked => "readiness_blocked",
         ProductEventName::LobbyEntered => "lobby_entered",
+        ProductEventName::LaunchAttempted => "launch_attempted",
+        ProductEventName::LaunchSucceeded => "launch_succeeded",
     }
 }
 
@@ -247,9 +268,12 @@ fn empty_summary() -> ActivationSummaryPayload {
         selected_sessions: 0,
         ready_sessions: 0,
         lobby_sessions: 0,
+        launch_attempted_sessions: 0,
+        launch_succeeded_sessions: 0,
         readiness_blocked_events: 0,
         selected_to_ready_rate: 0.0,
         selected_to_lobby_rate: 0.0,
+        selected_to_launch_rate: 0.0,
         blocked_by_check: Vec::new(),
     }
 }

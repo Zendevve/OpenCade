@@ -406,6 +406,8 @@ pub enum ProductEventName {
     ReadinessCompleted,
     ReadinessBlocked,
     LobbyEntered,
+    LaunchAttempted,
+    LaunchSucceeded,
 }
 
 /// Stable readiness checks used for aggregate blocker analysis.
@@ -452,9 +454,14 @@ pub struct ActivationSummaryPayload {
     #[ts(type = "number")]
     pub lobby_sessions: i64,
     #[ts(type = "number")]
+    pub launch_attempted_sessions: i64,
+    #[ts(type = "number")]
+    pub launch_succeeded_sessions: i64,
+    #[ts(type = "number")]
     pub readiness_blocked_events: i64,
     pub selected_to_ready_rate: f64,
     pub selected_to_lobby_rate: f64,
+    pub selected_to_launch_rate: f64,
     pub blocked_by_check: Vec<ReadinessBlockCount>,
 }
 

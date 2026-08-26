@@ -3,6 +3,7 @@ pub mod authn;
 pub mod config;
 pub mod error;
 pub mod health;
+pub mod lifecycle;
 pub mod metrics;
 pub mod room_state;
 pub mod routes;
@@ -11,7 +12,10 @@ pub mod ws;
 
 use axum::{
     Router,
+    extract::{Request, State},
     http::{HeaderValue, Method, header},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
 };
 use tower_http::{
@@ -122,9 +126,40 @@ pub fn build_app(state: AppState) -> Router {
             post(routes::rooms::finish_room),
         )
         .route("/ws", get(ws::ws_handler))
-        .with_state(state)
+        .with_state(state.clone())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn_with_state(state, track_http))
+}
+
+async fn track_http(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    use std::{sync::atomic::Ordering, time::Instant};
+    let started = Instant::now();
+    state
+        .metrics
+        .http_requests_total
+        .fetch_add(1, Ordering::Relaxed);
+    let response = next.run(request).await;
+    state.metrics.http_request_duration_micros.fetch_add(
+        started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+        Ordering::Relaxed,
+    );
+    match response.status().as_u16() {
+        400..=499 => {
+            state
+                .metrics
+                .http_responses_4xx
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        500..=599 => {
+            state
+                .metrics
+                .http_responses_5xx
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+    response
 }
 
 fn cors_layer(config: &Config) -> CorsLayer {
@@ -137,7 +172,11 @@ fn cors_layer(config: &Config) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
         .allow_methods([Method::GET, Method::POST])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-operator-token"),
+        ])
 }
 
 pub async fn shutdown_signal() {

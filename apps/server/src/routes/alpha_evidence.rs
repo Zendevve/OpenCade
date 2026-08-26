@@ -1,4 +1,8 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+};
 use opencade_networking::summarize_campaign_evidence;
 use opencade_protocol::{AlphaFailureReport, Envelope, MatchReport, MatchReportRole};
 use serde::Deserialize;
@@ -9,6 +13,7 @@ use uuid::Uuid;
 use crate::{authn::AuthUser, error::AppError, state::AppState};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EvidenceRequest {
     evidence: Value,
 }
@@ -18,14 +23,21 @@ pub async fn submit_evidence(
     user: AuthUser,
     Json(request): Json<EvidenceRequest>,
 ) -> Result<(StatusCode, Json<Envelope<Value>>), AppError> {
-    let encoded = serde_json::to_vec(&request.evidence)
+    let raw_encoded = serde_json::to_vec(&request.evidence)
         .map_err(|_| AppError::BadRequest("evidence is invalid".into()))?;
-    if encoded.len() > 64 * 1024 || contains_private_key(&request.evidence) {
+    if raw_encoded.len() > 64 * 1024 {
         return Err(AppError::BadRequest(
-            "evidence exceeds limits or contains private fields".into(),
+            "evidence exceeds the 64 KiB limit".into(),
         ));
     }
-    let (room_id, role, kind) = decode_identity(&request.evidence)?;
+    let (room_id, role, kind, canonical) = decode_evidence(&request.evidence)?;
+    if contains_private_key(&canonical) {
+        return Err(AppError::BadRequest(
+            "evidence contains private fields".into(),
+        ));
+    }
+    let encoded = serde_json::to_vec(&canonical)
+        .map_err(|_| AppError::BadRequest("evidence is invalid".into()))?;
     let expected_role = member_role(&state, room_id, user.id).await?;
     if role != expected_role {
         return Err(AppError::Forbidden(
@@ -43,7 +55,7 @@ pub async fn submit_evidence(
     .bind(user.id)
     .bind(role_label(role))
     .bind(kind)
-    .bind(request.evidence)
+    .bind(canonical)
     .execute(&state.pool)
     .await?;
     reject_conflicting_duplicate(&state, room_id, user.id, kind, &digest, &inserted).await?;
@@ -64,9 +76,22 @@ pub async fn submit_evidence(
 pub async fn campaign_summary(
     State(state): State<AppState>,
     _user: AuthUser,
+    headers: HeaderMap,
 ) -> Result<Json<Envelope<Value>>, AppError> {
+    state.require_operator(
+        headers
+            .get("x-operator-token")
+            .and_then(|value| value.to_str().ok()),
+    )?;
     let values = sqlx::query_scalar::<_, Value>(
-        "SELECT payload FROM alpha_evidence ORDER BY created_at DESC LIMIT 1000",
+        "WITH recent_rooms AS (
+             SELECT room_id, MAX(created_at) AS latest
+             FROM alpha_evidence GROUP BY room_id
+             ORDER BY latest DESC LIMIT 500
+         )
+         SELECT evidence.payload FROM alpha_evidence AS evidence
+         JOIN recent_rooms USING (room_id)
+         ORDER BY evidence.created_at DESC",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -81,27 +106,40 @@ pub async fn campaign_summary(
             failures.push(report);
         }
     }
-    Ok(Json(Envelope::new(
-        "alpha.campaign.summary",
-        json!(summarize_campaign_evidence(&matches, &failures)),
-    )))
+    let total_rooms =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(DISTINCT room_id) FROM alpha_evidence")
+            .fetch_one(&state.pool)
+            .await?;
+    let mut summary = serde_json::to_value(summarize_campaign_evidence(&matches, &failures))?;
+    if let Some(summary) = summary.as_object_mut() {
+        summary.insert("cohort_limit".into(), json!(500));
+        summary.insert("total_evidence_rooms".into(), json!(total_rooms));
+        summary.insert("cohort_truncated".into(), json!(total_rooms > 500));
+    }
+    Ok(Json(Envelope::new("alpha.campaign.summary", summary)))
 }
 
-fn decode_identity(value: &Value) -> Result<(Uuid, MatchReportRole, &'static str), AppError> {
+fn decode_evidence(
+    value: &Value,
+) -> Result<(Uuid, MatchReportRole, &'static str, Value), AppError> {
     match value.get("kind") {
         None => {
             let report: MatchReport = serde_json::from_value(value.clone())
                 .map_err(|_| AppError::BadRequest("match evidence is invalid".into()))?;
-            Ok((parse_room_id(&report.room.id)?, report.probe.role, "match"))
+            let room_id = parse_room_id(&report.room.id)?;
+            let role = report.probe.role;
+            let canonical = serde_json::to_value(report)
+                .map_err(|_| AppError::BadRequest("match evidence is invalid".into()))?;
+            Ok((room_id, role, "match", canonical))
         }
         Some(Value::String(kind)) if kind == "attempt_failure" => {
             let report: AlphaFailureReport = serde_json::from_value(value.clone())
                 .map_err(|_| AppError::BadRequest("failure evidence is invalid".into()))?;
-            Ok((
-                parse_room_id(&report.room.id)?,
-                report.role,
-                "attempt_failure",
-            ))
+            let room_id = parse_room_id(&report.room.id)?;
+            let role = report.role;
+            let canonical = serde_json::to_value(report)
+                .map_err(|_| AppError::BadRequest("failure evidence is invalid".into()))?;
+            Ok((room_id, role, "attempt_failure", canonical))
         }
         _ => Err(AppError::BadRequest("evidence kind is invalid".into())),
     }

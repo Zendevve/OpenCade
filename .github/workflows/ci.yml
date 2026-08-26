@@ -117,8 +117,41 @@ jobs:
       - name: Docker Compose configuration
         run: docker compose config
         env:
+          POSTGRES_PASSWORD: ci-postgres-password
           SESSION_SECRET: ci-compose-secret-at-least-32-bytes
           RELAY_AUTH_SECRET: ci-relay-secret-at-least-32-bytes-long
+          OPERATOR_TOKEN: ci-operator-token-at-least-32-bytes-long
+          PUBLIC_RELAY_URL: wss://relay.example.test/relay
+          STUN_HOST: stun.example.test
+
+  security:
+    name: Dependency and container security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --deny warnings
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Audit production JavaScript dependencies
+        run: pnpm audit --prod --audit-level high
+      - name: Build production containers
+        run: |
+          docker build -f apps/server/Dockerfile -t opencade-server:ci .
+          docker build -f services/relay/Dockerfile -t opencade-relay:ci .
 
   desktop:
     name: Desktop Rust (Windows / MSRV)

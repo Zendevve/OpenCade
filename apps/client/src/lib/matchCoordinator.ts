@@ -9,11 +9,18 @@ export type MatchPhase =
   | "finished"
   | "failed";
 
-export type MatchCoordinatorState = {
-  phase: MatchPhase;
-  transport?: "direct_udp" | "relay";
-  error?: string;
-};
+type Transport = "direct_udp" | "relay";
+
+export type MatchCoordinatorState =
+  | { phase: "probing"; transport?: never; error?: never }
+  | {
+      phase: "awaiting_peer" | "ready" | "launching" | "awaiting_peer_launch" | "playing";
+      transport: "direct_udp";
+      error?: never;
+    }
+  | { phase: "relay_probe_only"; transport: "relay"; error?: never }
+  | { phase: "finished"; transport?: Transport; error?: never }
+  | { phase: "failed"; transport?: Transport; error: string };
 
 export type MatchCoordinatorEvent =
   | {
@@ -37,33 +44,43 @@ export function transitionMatchCoordinator(
   event: MatchCoordinatorEvent
 ): MatchCoordinatorState {
   if (event.type === "reset") return initialMatchCoordinatorState;
-  if (event.type === "failed") return { ...state, phase: "failed", error: event.error };
-  if (event.type === "room_finished") return { ...state, phase: "finished" };
+  if (event.type === "failed") {
+    return { phase: "failed", transport: state.transport, error: event.error };
+  }
+  if (event.type === "room_finished") return { phase: "finished", transport: state.transport };
 
   switch (state.phase) {
     case "probing":
       if (event.type === "probe_verified") {
-        return {
-          phase:
-            event.transport === "direct_udp" && event.candidate === "host"
-              ? "awaiting_peer"
-              : "relay_probe_only",
-          transport: event.transport,
-        };
+        return event.transport === "direct_udp" && event.candidate === "host"
+          ? { phase: "awaiting_peer", transport: "direct_udp" }
+          : { phase: "relay_probe_only", transport: "relay" };
       }
       return state;
     case "awaiting_peer":
-      return event.type === "peer_transcript_verified" ? { ...state, phase: "ready" } : state;
+      return event.type === "peer_transcript_verified"
+        ? { phase: "ready", transport: state.transport }
+        : state;
     case "ready":
-      return event.type === "launch_requested" ? { ...state, phase: "launching" } : state;
+      return event.type === "launch_requested"
+        ? { phase: "launching", transport: state.transport }
+        : state;
     case "launching":
-      return event.type === "native_spawned" ? { ...state, phase: "awaiting_peer_launch" } : state;
+      return event.type === "native_spawned"
+        ? { phase: "awaiting_peer_launch", transport: state.transport }
+        : state;
     case "awaiting_peer_launch":
-      if (event.type === "room_playing") return { ...state, phase: "playing" };
-      if (event.type === "native_exited") return { ...state, phase: "finished" };
+      if (event.type === "room_playing") {
+        return { phase: "playing", transport: state.transport };
+      }
+      if (event.type === "native_exited") {
+        return { phase: "finished", transport: state.transport };
+      }
       return state;
     case "playing":
-      return event.type === "native_exited" ? { ...state, phase: "finished" } : state;
+      return event.type === "native_exited"
+        ? { phase: "finished", transport: state.transport }
+        : state;
     case "relay_probe_only":
     case "finished":
     case "failed":

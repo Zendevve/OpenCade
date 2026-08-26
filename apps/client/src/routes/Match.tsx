@@ -11,6 +11,7 @@ import {
 } from "../lib/report";
 import { useLanMatchProbe } from "../lib/useLanMatchProbe";
 import { usePlayableMatch } from "../lib/usePlayableMatch";
+import { stopGame } from "../lib/native";
 import type { OpenCadeSocket } from "../lib/ws";
 
 export default function Match({
@@ -68,6 +69,8 @@ export default function Match({
     peerCompletion,
   });
   const [now, setNow] = useState(Date.now());
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
   const uploadedSuccess = useRef(false);
   const uploadedFailure = useRef(false);
   useEffect(() => {
@@ -193,6 +196,11 @@ export default function Match({
           {playableMatch.error.message}
         </p>
       )}
+      {leaveError && (
+        <p className="form-error" role="alert">
+          {leaveError}
+        </p>
+      )}
       {playableMatch.data && (
         <p className="status-copy" role="status">
           RetroArch netplay launched · PID {playableMatch.data.pid} · content{" "}
@@ -214,6 +222,22 @@ export default function Match({
               : coordinator.phase === "relay_probe_only"
                 ? "Retry direct UDP"
                 : "Retry LAN probe"}
+          </button>
+        )}
+        {room.isError && (
+          <button className="secondary" onClick={() => void room.refetch()}>
+            Retry room status
+          </button>
+        )}
+        {(playableMatch.isError || coordinator.phase === "failed") && (
+          <button
+            className="secondary"
+            onClick={() => {
+              playableMatch.reset();
+              resetCoordinator();
+            }}
+          >
+            Retry match setup
           </button>
         )}
         {completedRoom && probeReport && (
@@ -243,8 +267,52 @@ export default function Match({
             {playableMatch.isPending ? "Launching RetroArch…" : "Launch playable alpha"}
           </button>
         )}
-        <button className="secondary" onClick={onDone}>
-          Return to games
+        <button
+          className="secondary"
+          disabled={isLeaving}
+          onClick={() => {
+            if (
+              room.data?.state !== "finished" &&
+              !window.confirm("Leave this match and stop its native session?")
+            ) {
+              return;
+            }
+            setIsLeaving(true);
+            setLeaveError("");
+            void (async () => {
+              try {
+                let stopError: unknown;
+                if (playableMatch.data?.pid) {
+                  try {
+                    await stopGame(playableMatch.data.pid);
+                  } catch (error) {
+                    stopError = error;
+                  }
+                }
+                if (
+                  room.data &&
+                  room.data.state !== "finished" &&
+                  room.data.state !== "cancelled"
+                ) {
+                  await api.cancelRoom(token, roomId);
+                }
+                if (stopError) throw stopError;
+                onDone();
+              } catch (error) {
+                setLeaveError(
+                  error instanceof Error ? error.message : "Match could not be left safely"
+                );
+              } finally {
+                setIsLeaving(false);
+              }
+            })();
+          }}
+        >
+          {isLeaving
+            ? "Leaving match…"
+            : room.data?.state === "finished"
+              ? "Return to games"
+              : "Leave match"}
         </button>
       </div>
     </section>

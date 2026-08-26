@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { api, type Game } from "../lib/api";
 import { scanGame } from "../lib/native";
-import CampaignDashboard from "../components/CampaignDashboard";
 import MatchReadiness from "../components/MatchReadiness";
 import TelemetryConsent from "../components/TelemetryConsent";
 import { trackProductEvent } from "../lib/telemetry";
@@ -27,7 +26,6 @@ export default function Games({ token, onSelect }: Props) {
   return (
     <>
       <TelemetryConsent />
-      <CampaignDashboard token={token} />
       <GameCatalog
         games={games.data.games}
         onSelect={(game) => {
@@ -66,7 +64,7 @@ function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (game: Game
               <strong>{game.name}</strong>
               <small>
                 {game.emulator} · {game.default_version ?? "version pending"} ·{" "}
-                {availability[index]?.data?.available ? "installed" : "ROM not detected"}
+                {availabilityLabel(availability[index])}
               </small>
             </span>
             <span className="arrow" aria-hidden="true">
@@ -77,6 +75,15 @@ function GameCatalog({ games, onSelect }: { games: Game[]; onSelect: (game: Game
       </div>
     </section>
   );
+}
+
+function availabilityLabel(
+  query: { isPending: boolean; isError: boolean; data?: { available: boolean } } | undefined
+): string {
+  if (!query || query.isPending) return "checking local files…";
+  if (query.isError) return "scan failed — select to retry";
+  if (!query.data) return "scan unavailable";
+  return query.data.available ? "installed" : "ROM not detected";
 }
 
 function StatusCard({ title, detail }: { title: string; detail: string }) {

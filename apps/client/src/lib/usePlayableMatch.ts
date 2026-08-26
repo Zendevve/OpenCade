@@ -5,9 +5,10 @@ import type {
   MatchProbeCompletedPayload,
   RoomPayload,
 } from "@opencade/protocol";
-import { api, getApiBase } from "./api";
+import { api } from "./api";
 import { matchParticipants, selectNativeRoute } from "./match";
 import { initialMatchCoordinatorState, transitionMatchCoordinator } from "./matchCoordinator";
+import { trackProductEvent } from "./telemetry";
 import {
   launchRetroarchMatch,
   onEmulatorExit,
@@ -111,10 +112,9 @@ export function usePlayableMatch({
         probeReport.candidate
       );
       dispatch({ type: "launch_requested" });
+      await trackProductEvent(token, "launch_attempted", room.game_id).catch(() => false);
       const grant = await api.createLaunchGrant(token, roomId, route.local, route.peer);
       const launch = await launchRetroarchMatch({
-        api_url: getApiBase(),
-        session_token: token,
         launch_grant: grant.grant,
       });
       try {
@@ -124,6 +124,7 @@ export function usePlayableMatch({
         throw error;
       }
       await queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+      await trackProductEvent(token, "launch_succeeded", room.game_id).catch(() => false);
       return launch;
     },
     onSuccess: () => dispatch({ type: "native_spawned" }),

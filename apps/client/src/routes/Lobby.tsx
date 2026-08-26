@@ -18,6 +18,8 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
   const [lobbyRoom, setLobbyRoom] = useState<RoomPayload | null>(null);
   const [inviteCode, setInviteCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [responsePending, setResponsePending] = useState<string | null>(null);
+  const [responseError, setResponseError] = useState("");
   const lobbyTracked = useRef(false);
   useEffect(() => {
     let active = true;
@@ -74,11 +76,19 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
   const pending = incoming.data?.challenges.filter((item) => item.game_id === gameId) ?? [];
   const peers = lobby.data?.members.filter((member) => member.user_id !== userId) ?? [];
   const respond = async (item: Challenge, accept: boolean) => {
-    const result = accept
-      ? await api.acceptChallenge(token, item.id)
-      : await api.declineChallenge(token, item.id);
-    await queryClient.invalidateQueries({ queryKey: ["challenges"] });
-    if (accept) onMatch(result.room_id);
+    setResponsePending(item.id);
+    setResponseError("");
+    try {
+      const result = accept
+        ? await api.acceptChallenge(token, item.id)
+        : await api.declineChallenge(token, item.id);
+      await queryClient.invalidateQueries({ queryKey: ["challenges"] });
+      if (accept) onMatch(result.room_id);
+    } catch (error) {
+      setResponseError(error instanceof Error ? error.message : "Challenge response failed");
+    } finally {
+      setResponsePending(null);
+    }
   };
   return (
     <section>
@@ -121,6 +131,20 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
           </button>
         </div>
       </article>
+      {(lobby.isError || incoming.isError || responseError) && (
+        <div className="form-error" role="alert">
+          {responseError || lobby.error?.message || incoming.error?.message}
+          <button
+            className="secondary compact"
+            onClick={() => {
+              void lobby.refetch();
+              void incoming.refetch();
+            }}
+          >
+            Retry lobby
+          </button>
+        </div>
+      )}
       {pending.map((item) => (
         <article className="challenge-banner" key={item.id}>
           <div>
@@ -128,10 +152,18 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
             <span>Room {item.room_id.slice(0, 8)}</span>
           </div>
           <div>
-            <button className="secondary" onClick={() => void respond(item, false)}>
+            <button
+              className="secondary"
+              disabled={responsePending === item.id}
+              onClick={() => void respond(item, false)}
+            >
               Decline
             </button>
-            <button className="primary compact" onClick={() => void respond(item, true)}>
+            <button
+              className="primary compact"
+              disabled={responsePending === item.id}
+              onClick={() => void respond(item, true)}
+            >
               Accept
             </button>
           </div>
@@ -154,7 +186,7 @@ export default function Lobby({ token, userId, gameId, onBack, onMatch }: Props)
             </button>
           </article>
         ))}
-        {!lobby.isPending && peers.length === 0 && (
+        {!lobby.isPending && !lobby.isError && peers.length === 0 && (
           <div className="empty">
             <strong>No opponents yet</strong>
             <span>Keep this lobby open while another player joins {gameId}.</span>

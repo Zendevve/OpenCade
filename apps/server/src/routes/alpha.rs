@@ -6,7 +6,7 @@ use opencade_protocol::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sqlx::Row;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -171,27 +171,42 @@ pub async fn submit_preflight(
         ));
     }
     validate_compatibility(&payload.compatibility)?;
-    ensure_member(&state, room_id, user.id).await?;
+    let mut transaction = state.pool.begin().await?;
+    let attempt_id = lock_active_attempt(&mut transaction, room_id, user.id).await?;
+    sqlx::query("DELETE FROM room_launch_barriers WHERE room_id = $1")
+        .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query(
         "INSERT INTO match_preflights
-            (room_id, user_id, compatibility, native_port_available, ready, updated_at)
-         VALUES ($1, $2, $3, $4, FALSE, now())
+            (room_id, user_id, compatibility, native_port_available, ready, updated_at, attempt_id)
+         VALUES ($1, $2, $3, $4, FALSE, now(), $5)
          ON CONFLICT (room_id, user_id) DO UPDATE SET
             compatibility = EXCLUDED.compatibility,
             native_port_available = EXCLUDED.native_port_available,
             ready = FALSE,
+            attempt_id = EXCLUDED.attempt_id,
             updated_at = now()",
     )
     .bind(room_id)
     .bind(user.id)
     .bind(json!(payload.compatibility))
     .bind(payload.native_port_available)
-    .execute(&state.pool)
+    .bind(attempt_id)
+    .execute(&mut *transaction)
     .await?;
-    sqlx::query("INSERT INTO room_events (room_id, event_type) VALUES ($1, 'match.preflight')")
-        .bind(room_id)
-        .execute(&state.pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO room_events
+            (room_id, event_type, attempt_id, actor_id, payload)
+         VALUES ($1, 'match.preflight', $2, $3, $4)",
+    )
+    .bind(room_id)
+    .bind(attempt_id)
+    .bind(user.id)
+    .bind(json!({ "native_port_available": payload.native_port_available }))
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     let snapshot = build_snapshot(&state, room_id, user.id).await?;
     notify_members(&state, room_id, "room.snapshot", json!(snapshot)).await?;
     Ok(Json(Envelope::new(
@@ -214,42 +229,61 @@ pub async fn ready_to_launch(
     user: AuthUser,
     Path(room_id): Path<Uuid>,
 ) -> Result<Json<Envelope<Value>>, AppError> {
-    ensure_member(&state, room_id, user.id).await?;
-    let snapshot = build_snapshot(&state, room_id, user.id).await?;
-    if snapshot.preflight_count != 2 || !snapshot.compatibility_matched {
+    let mut transaction = state.pool.begin().await?;
+    let attempt_id = lock_active_attempt(&mut transaction, room_id, user.id).await?;
+    let (preflight_count, compatibility_matched) =
+        preflight_status(&mut transaction, room_id, attempt_id).await?;
+    if preflight_count != 2 || !compatibility_matched {
         return Err(AppError::Conflict(
             "both peers must pass matching compatibility preflight".into(),
         ));
     }
     sqlx::query(
         "UPDATE match_preflights SET ready = TRUE, updated_at = now()
-         WHERE room_id = $1 AND user_id = $2 AND native_port_available = TRUE",
+         WHERE room_id = $1 AND user_id = $2 AND attempt_id = $3
+           AND native_port_available = TRUE",
     )
     .bind(room_id)
     .bind(user.id)
-    .execute(&state.pool)
+    .bind(attempt_id)
+    .execute(&mut *transaction)
     .await?;
     let ready_count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM match_preflights WHERE room_id = $1 AND ready = TRUE",
+        "SELECT count(*) FROM match_preflights
+         WHERE room_id = $1 AND attempt_id = $2 AND ready = TRUE",
     )
     .bind(room_id)
-    .fetch_one(&state.pool)
+    .bind(attempt_id)
+    .fetch_one(&mut *transaction)
     .await?;
     if ready_count == 2 {
         sqlx::query(
-            "INSERT INTO room_launch_barriers (room_id, launch_at)
-             VALUES ($1, now() + make_interval(secs => $2))
-             ON CONFLICT (room_id) DO NOTHING",
+            "INSERT INTO room_launch_barriers (room_id, attempt_id, launch_at)
+             VALUES ($1, $2, now() + make_interval(secs => $3))
+             ON CONFLICT (room_id) DO UPDATE SET
+                attempt_id = EXCLUDED.attempt_id,
+                launch_at = EXCLUDED.launch_at
+             WHERE room_launch_barriers.attempt_id <> EXCLUDED.attempt_id
+                OR room_launch_barriers.launch_at <= now()",
         )
         .bind(room_id)
+        .bind(attempt_id)
         .bind(LAUNCH_DELAY_SECONDS as f64)
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
     }
-    sqlx::query("INSERT INTO room_events (room_id, event_type) VALUES ($1, 'match.launch.ready')")
-        .bind(room_id)
-        .execute(&state.pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO room_events
+            (room_id, event_type, attempt_id, actor_id, payload)
+         VALUES ($1, 'match.launch.ready', $2, $3, $4)",
+    )
+    .bind(room_id)
+    .bind(attempt_id)
+    .bind(user.id)
+    .bind(json!({ "ready_count": ready_count }))
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     let snapshot = build_snapshot(&state, room_id, user.id).await?;
     notify_members(&state, room_id, "room.snapshot", json!(snapshot)).await?;
     Ok(Json(Envelope::new("match.launch.ready", json!(snapshot))))
@@ -263,7 +297,10 @@ async fn build_snapshot(
     let room = room_payload(state, room_id, user_id).await?;
     let rows = sqlx::query(
         "SELECT compatibility, native_port_available, ready
-         FROM match_preflights WHERE room_id = $1 ORDER BY user_id",
+         FROM match_preflights
+         WHERE room_id = $1
+           AND attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+         ORDER BY user_id",
     )
     .bind(room_id)
     .fetch_all(&state.pool)
@@ -283,7 +320,9 @@ async fn build_snapshot(
         .filter(|row| row.try_get::<bool, _>("ready").unwrap_or(false))
         .count();
     let launch_at = sqlx::query_scalar::<_, DateTime<Utc>>(
-        "SELECT launch_at FROM room_launch_barriers WHERE room_id = $1",
+        "SELECT launch_at FROM room_launch_barriers
+         WHERE room_id = $1
+           AND attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)",
     )
     .bind(room_id)
     .fetch_optional(&state.pool)
@@ -309,19 +348,67 @@ async fn build_snapshot(
     })
 }
 
-async fn ensure_member(state: &AppState, room_id: Uuid, user_id: Uuid) -> Result<(), AppError> {
-    let member = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
+async fn lock_active_attempt(
+    transaction: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    user_id: Uuid,
+) -> Result<Uuid, AppError> {
+    let row = sqlx::query(
+        "SELECT rooms.attempt_id, rooms.state, rooms.state_deadline_at
+         FROM rooms
+         JOIN room_members ON room_members.room_id = rooms.id
+         WHERE rooms.id = $1 AND room_members.user_id = $2
+         FOR UPDATE OF rooms",
     )
     .bind(room_id)
     .bind(user_id)
-    .fetch_one(&state.pool)
-    .await?;
-    if member {
-        Ok(())
-    } else {
-        Err(AppError::Forbidden("not a room member".into()))
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| AppError::Forbidden("not a room member".into()))?;
+    let room_state: String = row
+        .try_get("state")
+        .map_err(|_| AppError::Internal("invalid room record".into()))?;
+    if !matches!(room_state.as_str(), "CONNECTING" | "PLAYING") {
+        return Err(AppError::Conflict(
+            "room is not active for match setup".into(),
+        ));
     }
+    let deadline: Option<DateTime<Utc>> = row
+        .try_get("state_deadline_at")
+        .map_err(|_| AppError::Internal("invalid room record".into()))?;
+    if deadline.is_some_and(|value| value <= Utc::now()) {
+        return Err(AppError::Conflict("room match setup has expired".into()));
+    }
+    row.try_get("attempt_id")
+        .map_err(|_| AppError::Internal("invalid room attempt".into()))
+}
+
+async fn preflight_status(
+    transaction: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    attempt_id: Uuid,
+) -> Result<(usize, bool), AppError> {
+    let rows = sqlx::query(
+        "SELECT compatibility, native_port_available
+         FROM match_preflights
+         WHERE room_id = $1 AND attempt_id = $2
+         ORDER BY user_id",
+    )
+    .bind(room_id)
+    .bind(attempt_id)
+    .fetch_all(&mut **transaction)
+    .await?;
+    let compatibilities = rows
+        .iter()
+        .filter_map(|row| row.try_get::<Value, _>("compatibility").ok())
+        .collect::<Vec<_>>();
+    let matched = compatibilities.len() == 2
+        && compatibilities[0] == compatibilities[1]
+        && rows.iter().all(|row| {
+            row.try_get::<bool, _>("native_port_available")
+                .unwrap_or(false)
+        });
+    Ok((rows.len(), matched))
 }
 
 async fn notify_members(

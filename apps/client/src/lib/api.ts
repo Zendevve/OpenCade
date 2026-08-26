@@ -1,9 +1,9 @@
+import { validateEnvelope } from "@opencade/protocol";
 import type {
   AlphaFailureReport,
   Envelope,
   MatchPreflightPayload,
   MatchReport,
-  ActivationSummaryPayload,
   ProductEventPayload,
   RoomInvitePayload,
   RoomPayload,
@@ -37,31 +37,12 @@ export type RelayTicket = {
     room_id: string;
     user_id: string;
     expires_at: number;
+    nonce: string;
     signature: string;
     capability: "probe" | "native_tcp_tunnel";
   };
 };
 export type MatchLaunchGrant = { grant: string; expires_at: string };
-export type CampaignSummary = {
-  schema_version: number;
-  reports: number;
-  attempts: number;
-  verified: number;
-  failed: number;
-  success_rate: number;
-  gate_passed: boolean;
-  failures: { room_id: string; code: string }[];
-  compatibility: {
-    game_id: string;
-    platform: string;
-    transport: string;
-    nat: string;
-    candidate: string;
-    attempts: number;
-    verified: number;
-  }[];
-};
-
 type ErrorPayload = { code?: string; message?: string };
 
 export class ApiError extends Error {
@@ -127,7 +108,18 @@ async function request<T>(path: string, token?: string | null, init?: RequestIni
 }
 
 function isEnvelope(value: unknown): value is Envelope<unknown> {
-  return typeof value === "object" && value !== null && "payload" in value && "type" in value;
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    typeof Reflect.get(value, "type") !== "string" ||
+    typeof Reflect.get(value, "version") !== "string" ||
+    typeof Reflect.get(value, "request_id") !== "string" ||
+    typeof Reflect.get(value, "timestamp") !== "string" ||
+    Reflect.get(value, "payload") === undefined
+  ) {
+    return false;
+  }
+  return validateEnvelope(value as Envelope<unknown>).ok;
 }
 
 function errorPayload(value: unknown): ErrorPayload {
@@ -181,6 +173,8 @@ export const api = {
       token,
       post({ exit_code: exitCode ?? null })
     ),
+  cancelRoom: (token: string, roomId: string) =>
+    request<RoomPayload>(`/api/v1/rooms/${roomId}/cancel`, token, post()),
   createLaunchGrant: (
     token: string,
     roomId: string,
@@ -219,13 +213,10 @@ export const api = {
       token,
       post({ evidence })
     ),
-  campaign: (token: string) => request<CampaignSummary>("/api/v1/alpha/campaign", token),
   recordProductEvent: (token: string, event: ProductEventPayload) =>
     request<{ accepted: boolean; duplicate: boolean }>(
       "/api/v1/telemetry/events",
       token,
       post(event)
     ),
-  activationSummary: (token: string) =>
-    request<ActivationSummaryPayload>("/api/v1/telemetry/activation", token),
 };

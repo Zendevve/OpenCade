@@ -20,9 +20,41 @@ async fn request(
     token: Option<&str>,
     body: Option<Value>,
 ) -> (StatusCode, Envelope<Value>) {
+    request_with_operator_token(app, method, uri, token, body, None).await
+}
+
+async fn operator_request(
+    app: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Envelope<Value>) {
+    request_with_operator_token(
+        app,
+        method,
+        uri,
+        token,
+        body,
+        Some("test-operator-token-with-32-characters"),
+    )
+    .await
+}
+
+async fn request_with_operator_token(
+    app: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+    operator_token: Option<&str>,
+) -> (StatusCode, Envelope<Value>) {
     let mut builder = Request::builder().method(method).uri(uri);
     if let Some(token) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if let Some(operator_token) = operator_token {
+        builder = builder.header("x-operator-token", operator_token);
     }
     let request_body = match body {
         Some(value) => {
@@ -185,6 +217,16 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     assert_eq!(accept_status, StatusCode::OK);
     assert_eq!(accepted.payload["state"], "accepted");
     let room_id = accepted.payload["room_id"].as_str().expect("room id");
+    let (repeat_accept_status, repeat_accept) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/challenges/{challenge_id}/accept"),
+        Some(&guest_token),
+        None,
+    )
+    .await;
+    assert_eq!(repeat_accept_status, StatusCode::OK);
+    assert_eq!(repeat_accept.payload["room_id"], room_id);
 
     let (room_status, room) = request(
         &app,
@@ -489,6 +531,54 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn expired_attempts_are_reconciled_authoritatively(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let state = AppState::new(pool.clone(), Config::for_test());
+    let app = build_app(state.clone());
+    let token = register(&app, "deadline_host").await;
+    let (status, room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&token),
+        Some(json!({ "game_id": "sfiii3" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let room_id = room.payload["id"].as_str().expect("room id");
+    sqlx::query(
+        "UPDATE rooms
+         SET state = 'CONNECTING', state_deadline_at = now() - interval '1 second'
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(room_id).expect("room uuid"))
+    .execute(&pool)
+    .await
+    .expect("expire room");
+
+    assert_eq!(
+        opencade_server::lifecycle::reconcile_expired(&state)
+            .await
+            .expect("reconcile"),
+        1
+    );
+    let outcome = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT rooms.state, match_attempts.state, match_attempts.failure_code
+         FROM rooms JOIN match_attempts USING (attempt_id) WHERE rooms.id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(room_id).expect("room uuid"))
+    .fetch_one(&pool)
+    .await
+    .expect("attempt outcome");
+    assert_eq!(outcome.0, "CANCELLED");
+    assert_eq!(outcome.1, "EXPIRED");
+    assert_eq!(outcome.2.as_deref(), Some("state_deadline_exceeded"));
+}
+
+#[sqlx::test]
 async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool) {
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -668,7 +758,7 @@ async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool
     )
     .await;
     assert_eq!(privacy_status, StatusCode::BAD_REQUEST);
-    let (campaign_status, campaign) = request(
+    let (campaign_status, campaign) = operator_request(
         &app,
         Method::GET,
         "/api/v1/alpha/campaign",
@@ -866,7 +956,7 @@ async fn product_telemetry_is_private_idempotent_bounded_and_aggregated(pool: Pg
         0
     );
 
-    let (summary_status, summary) = request(
+    let (summary_status, summary) = operator_request(
         &app,
         Method::GET,
         "/api/v1/telemetry/activation",
@@ -879,9 +969,12 @@ async fn product_telemetry_is_private_idempotent_bounded_and_aggregated(pool: Pg
     assert_eq!(summary.payload["selected_sessions"], 3);
     assert_eq!(summary.payload["ready_sessions"], 3);
     assert_eq!(summary.payload["lobby_sessions"], 3);
+    assert_eq!(summary.payload["launch_attempted_sessions"], 0);
+    assert_eq!(summary.payload["launch_succeeded_sessions"], 0);
     assert_eq!(summary.payload["readiness_blocked_events"], 3);
     assert_eq!(summary.payload["selected_to_ready_rate"], 1.0);
     assert_eq!(summary.payload["selected_to_lobby_rate"], 1.0);
+    assert_eq!(summary.payload["selected_to_launch_rate"], 0.0);
     assert_eq!(
         summary.payload["blocked_by_check"][0]["check"],
         "game_runtime"

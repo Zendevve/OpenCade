@@ -22,6 +22,7 @@ impl RelayPeer {
             .append_pair("user_id", &ticket.user_id)
             .append_pair("expires_at", &ticket.expires_at.to_string())
             .append_pair("capability", ticket.capability.as_str())
+            .append_pair("nonce", &ticket.nonce.to_string())
             .append_pair("signature", &ticket.signature);
         let (stream, _) = connect_async(url.as_str())
             .await

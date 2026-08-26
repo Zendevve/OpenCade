@@ -24,7 +24,11 @@ pub fn transition(state: RoomState, event: RoomEvent) -> Result<RoomState, Inval
         (RoomState::Connecting, RoomEvent::Start) => Ok(RoomState::Playing),
         (RoomState::Playing, RoomEvent::Finish) => Ok(RoomState::Finished),
         (
-            RoomState::Waiting | RoomState::Ready | RoomState::Challenging | RoomState::Connecting,
+            RoomState::Waiting
+            | RoomState::Ready
+            | RoomState::Challenging
+            | RoomState::Connecting
+            | RoomState::Playing,
             RoomEvent::Cancel | RoomEvent::Decline,
         ) => Ok(RoomState::Cancelled),
         _ => Err(InvalidTransition { state, event }),
@@ -66,6 +70,14 @@ mod tests {
         let playing = transition(connecting, RoomEvent::Start).expect("start");
         let finished = transition(playing, RoomEvent::Finish).expect("finish");
         assert_eq!(finished, RoomState::Finished);
+    }
+
+    #[test]
+    fn an_active_player_can_abandon_a_match_safely() {
+        assert_eq!(
+            transition(RoomState::Playing, RoomEvent::Cancel),
+            Ok(RoomState::Cancelled)
+        );
     }
 
     #[test]

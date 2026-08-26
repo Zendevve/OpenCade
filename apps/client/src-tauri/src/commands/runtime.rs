@@ -1,29 +1,35 @@
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RuntimeConfig {
-    api_url: String,
+    pub(crate) api_url: String,
     stun_server: Option<String>,
 }
 
-#[tauri::command]
-pub fn runtime_config() -> Result<RuntimeConfig, String> {
-    let api_url =
-        std::env::var("OPENCADE_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-    validate_api_url(&api_url)?;
-    let stun_server = std::env::var("OPENCADE_STUN_SERVER")
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
-    if let Some(server) = &stun_server {
-        server
-            .parse::<std::net::SocketAddr>()
-            .map_err(|_| "OPENCADE_STUN_SERVER must be a numeric IP:port".to_string())?;
+impl RuntimeConfig {
+    pub fn from_env() -> Result<Self, String> {
+        let api_url = std::env::var("OPENCADE_API_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        validate_api_url(&api_url)?;
+        let stun_server = std::env::var("OPENCADE_STUN_SERVER")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if let Some(server) = &stun_server {
+            server
+                .parse::<std::net::SocketAddr>()
+                .map_err(|_| "OPENCADE_STUN_SERVER must be a numeric IP:port".to_string())?;
+        }
+        Ok(RuntimeConfig {
+            api_url: api_url.trim_end_matches('/').to_owned(),
+            stun_server,
+        })
     }
-    Ok(RuntimeConfig {
-        api_url: api_url.trim_end_matches('/').to_owned(),
-        stun_server,
-    })
+}
+
+#[tauri::command]
+pub fn runtime_config(state: tauri::State<'_, RuntimeConfig>) -> RuntimeConfig {
+    state.inner().clone()
 }
 
 fn validate_api_url(value: &str) -> Result<(), String> {

@@ -16,10 +16,11 @@ COPY packages/game-definitions/Cargo.toml packages/game-definitions/Cargo.toml
 COPY adapters/fbneo/Cargo.toml adapters/fbneo/Cargo.toml
 COPY adapters/retroarch/Cargo.toml adapters/retroarch/Cargo.toml
 COPY services/relay/Cargo.toml services/relay/Cargo.toml
+COPY crates/proof-of-match/Cargo.toml crates/proof-of-match/Cargo.toml
 
 # Create stub sources so `cargo build` can resolve the workspace graph.
 RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
-             packages/emulator-sdk/src packages/shared/src packages/game-definitions/src adapters/fbneo/src adapters/retroarch/src services/relay/src \
+             packages/emulator-sdk/src packages/shared/src packages/game-definitions/src adapters/fbneo/src adapters/retroarch/src services/relay/src crates/proof-of-match/src \
     && echo "fn main() {}" > apps/server/src/main.rs \
     && echo "" > packages/protocol/src/lib.rs \
     && echo "" > packages/networking/src/lib.rs \
@@ -29,6 +30,7 @@ RUN mkdir -p apps/server/src packages/protocol/src packages/networking/src \
     && echo "" > adapters/fbneo/src/lib.rs \
     && echo "" > adapters/retroarch/src/lib.rs \
     && echo "fn main() {}" > services/relay/src/main.rs \
+    && echo "" > crates/proof-of-match/src/lib.rs \
     && cargo build --release --locked
 
 # Copy the real sources (invalidates cache only when source changes).

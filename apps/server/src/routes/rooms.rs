@@ -151,22 +151,59 @@ pub async fn create_room(
     }
 
     let room_id = Uuid::new_v4();
+    let attempt_id = Uuid::new_v4();
     let mut transaction = state.pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO rooms (id, game_id, host_user_id, state, max_players)
-         VALUES ($1, $2, $3, 'WAITING', $4)",
+    let inserted = sqlx::query(
+        "INSERT INTO rooms
+            (id, game_id, host_user_id, state, max_players, attempt_id, state_deadline_at)
+         VALUES ($1, $2, $3, 'WAITING', $4, $5, now() + interval '24 hours')
+         ON CONFLICT (host_user_id, game_id) WHERE state = 'WAITING' DO NOTHING",
     )
     .bind(room_id)
     .bind(&request.game_id)
     .bind(user.id)
     .bind(request.max_players)
+    .bind(attempt_id)
     .execute(&mut *transaction)
     .await?;
+    if inserted.rows_affected() == 0 {
+        transaction.rollback().await?;
+        let existing_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM rooms
+             WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'",
+        )
+        .bind(user.id)
+        .bind(&request.game_id)
+        .fetch_one(&state.pool)
+        .await?;
+        let payload = room_payload(&state, existing_id, user.id).await?;
+        return Ok((
+            StatusCode::OK,
+            Json(Envelope::new("rooms.existing", json!(payload))),
+        ));
+    }
     sqlx::query("INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)")
         .bind(room_id)
         .bind(user.id)
         .execute(&mut *transaction)
         .await?;
+    sqlx::query(
+        "INSERT INTO match_attempts (attempt_id, room_id, state, deadline_at)
+         VALUES ($1, $2, 'ACTIVE', now() + interval '24 hours')",
+    )
+    .bind(attempt_id)
+    .bind(room_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         VALUES ($1, $2, $3, 'room.created', jsonb_build_object('state', 'waiting'))",
+    )
+    .bind(room_id)
+    .bind(attempt_id)
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     state.metrics.rooms_created.fetch_add(1, Ordering::Relaxed);
 
@@ -198,6 +235,23 @@ pub async fn accept_room(
             "room host cannot accept their own room".into(),
         ));
     }
+    let already_member = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)",
+    )
+    .bind(id)
+    .bind(user.id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if already_member
+        && matches!(
+            current,
+            RoomState::Connecting | RoomState::Playing | RoomState::Finished
+        )
+    {
+        transaction.rollback().await?;
+        let payload = room_payload(&state, id, user.id).await?;
+        return Ok(Json(Envelope::new("rooms.accepted", json!(payload))));
+    }
     let members =
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM room_members WHERE room_id = $1")
             .bind(id)
@@ -216,15 +270,33 @@ pub async fn accept_room(
     .bind(user.id)
     .execute(&mut *transaction)
     .await?;
-    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
-        .bind(id)
-        .bind(to_database(&next))
-        .execute(&mut *transaction)
-        .await?;
+    sqlx::query(
+        "UPDATE rooms SET state = $2, state_deadline_at = now() + interval '2 minutes'
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(to_database(&next))
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE match_attempts
+         SET deadline_at = now() + interval '2 minutes'
+         WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)",
+    )
+    .bind(id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         SELECT id, attempt_id, $2, 'room.accepted', jsonb_build_object('state', 'connecting')
+         FROM rooms WHERE id = $1",
+    )
+    .bind(id)
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
-
-    let payload = room_payload(&state, id, user.id).await?;
-    Ok(Json(Envelope::new("rooms.accepted", json!(payload))))
+    notify_room_state(&state, id, user.id).await
 }
 
 pub async fn decline_room(
@@ -233,10 +305,7 @@ pub async fn decline_room(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Envelope<Value>>, AppError> {
     change_room_state(&state, &user, id, RoomEvent::Decline, false).await?;
-    Ok(Json(Envelope::new(
-        "rooms.declined",
-        json!({ "room_id": id, "state": "cancelled" }),
-    )))
+    notify_room_state(&state, id, user.id).await
 }
 
 pub async fn cancel_room(
@@ -244,11 +313,8 @@ pub async fn cancel_room(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Envelope<Value>>, AppError> {
-    change_room_state(&state, &user, id, RoomEvent::Cancel, true).await?;
-    Ok(Json(Envelope::new(
-        "rooms.cancelled",
-        json!({ "room_id": id, "state": "cancelled" }),
-    )))
+    change_room_state(&state, &user, id, RoomEvent::Cancel, false).await?;
+    notify_room_state(&state, id, user.id).await
 }
 
 pub async fn start_room(
@@ -273,6 +339,7 @@ pub async fn relay_ticket(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Envelope<Value>>, AppError> {
+    require_ticket_budget(&state, user.id)?;
     let relay_url = state
         .config
         .relay_url
@@ -320,6 +387,7 @@ pub async fn native_tunnel_ticket(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Envelope<Value>>, AppError> {
+    require_ticket_budget(&state, user.id)?;
     let relay_url = state
         .config
         .relay_url
@@ -362,6 +430,19 @@ pub async fn native_tunnel_ticket(
         "native_tcp_tunnel.ticket",
         json!({ "relay_url": relay_url, "ticket": ticket }),
     )))
+}
+
+fn require_ticket_budget(state: &AppState, user_id: Uuid) -> Result<(), AppError> {
+    if state
+        .auth_rate_limiter
+        .check_with_limit(&format!("relay-ticket:{user_id}"), 20)
+    {
+        Ok(())
+    } else {
+        Err(AppError::RateLimited(
+            "relay ticket issuance limit exceeded".into(),
+        ))
+    }
 }
 
 pub async fn create_launch_grant(
@@ -456,6 +537,14 @@ pub async fn create_launch_grant(
     .bind(peer_endpoint.to_string())
     .bind(i16::from(request.input_delay_frames))
     .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE match_attempts
+         SET deadline_at = now() + interval '2 minutes'
+         WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)",
+    )
+    .bind(id)
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
@@ -587,17 +676,38 @@ async fn confirm_native_launch(
     if current == RoomState::Connecting && member_count == 2 && launched_count == member_count {
         let next = transition(current, RoomEvent::Start)
             .map_err(|error| AppError::Conflict(error.to_string()))?;
-        sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
-            .bind(room_id)
-            .bind(to_database(&next))
-            .execute(&mut *transaction)
-            .await?;
+        sqlx::query(
+            "UPDATE rooms SET state = $2, state_deadline_at = now() + interval '4 hours'
+             WHERE id = $1",
+        )
+        .bind(room_id)
+        .bind(to_database(&next))
+        .execute(&mut *transaction)
+        .await?;
         sqlx::query(
             "INSERT INTO matches (room_id, game_id, started_at)
              SELECT id, game_id, now() FROM rooms WHERE id = $1
              ON CONFLICT (room_id) DO NOTHING",
         )
         .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE match_attempts
+             SET deadline_at = now() + interval '4 hours'
+             WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+               AND state = 'ACTIVE'",
+        )
+        .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+             SELECT id, attempt_id, $2, 'room.playing', jsonb_build_object('state', 'playing')
+             FROM rooms WHERE id = $1",
+        )
+        .bind(room_id)
+        .bind(user.id)
         .execute(&mut *transaction)
         .await?;
     }
@@ -642,11 +752,31 @@ async fn confirm_native_exit(
         RoomState::Connecting => {
             let next = transition(current, RoomEvent::Cancel)
                 .map_err(|error| AppError::Conflict(error.to_string()))?;
-            sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+            sqlx::query("UPDATE rooms SET state = $2, state_deadline_at = NULL WHERE id = $1")
                 .bind(room_id)
                 .bind(to_database(&next))
                 .execute(&mut *transaction)
                 .await?;
+            sqlx::query(
+                "UPDATE match_attempts
+                 SET state = 'FAILED', failure_code = 'native_exit_before_start',
+                     finished_at = COALESCE(finished_at, now()), deadline_at = NULL
+                 WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+                   AND state = 'ACTIVE'",
+            )
+            .bind(room_id)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+                 SELECT id, attempt_id, $2, 'room.failed',
+                        jsonb_build_object('state', 'cancelled', 'failure_code', 'native_exit_before_start')
+                 FROM rooms WHERE id = $1",
+            )
+            .bind(room_id)
+            .bind(user.id)
+            .execute(&mut *transaction)
+            .await?;
         }
         RoomState::Playing => {
             let member_count = sqlx::query_scalar::<_, i64>(
@@ -665,7 +795,7 @@ async fn confirm_native_exit(
             if member_count == 2 && ended_count == member_count {
                 let next = transition(current, RoomEvent::Finish)
                     .map_err(|error| AppError::Conflict(error.to_string()))?;
-                sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+                sqlx::query("UPDATE rooms SET state = $2, state_deadline_at = NULL WHERE id = $1")
                     .bind(room_id)
                     .bind(to_database(&next))
                     .execute(&mut *transaction)
@@ -674,6 +804,25 @@ async fn confirm_native_exit(
                     "UPDATE matches SET ended_at = COALESCE(ended_at, now()) WHERE room_id = $1",
                 )
                 .bind(room_id)
+                .execute(&mut *transaction)
+                .await?;
+                sqlx::query(
+                    "UPDATE match_attempts
+                     SET state = 'SUCCEEDED', finished_at = COALESCE(finished_at, now()),
+                         deadline_at = NULL
+                     WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+                       AND state = 'ACTIVE'",
+                )
+                .bind(room_id)
+                .execute(&mut *transaction)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+                     SELECT id, attempt_id, $2, 'room.finished', jsonb_build_object('state', 'finished')
+                     FROM rooms WHERE id = $1",
+                )
+                .bind(room_id)
+                .bind(user.id)
                 .execute(&mut *transaction)
                 .await?;
             }
@@ -734,11 +883,39 @@ async fn change_room_state(
         }
     }
     let next = transition(current, event).map_err(|error| AppError::Conflict(error.to_string()))?;
-    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
+    sqlx::query("UPDATE rooms SET state = $2, state_deadline_at = NULL WHERE id = $1")
         .bind(room_id)
         .bind(to_database(&next))
         .execute(&mut *transaction)
         .await?;
+    if next == RoomState::Cancelled {
+        sqlx::query(
+            "UPDATE challenges SET state = 'CANCELLED'
+             WHERE room_id = $1 AND state = 'PENDING'",
+        )
+        .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE match_attempts
+             SET state = 'CANCELLED', finished_at = COALESCE(finished_at, now()),
+                 deadline_at = NULL
+             WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+               AND state = 'ACTIVE'",
+        )
+        .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         SELECT id, attempt_id, $2, 'room.cancelled', jsonb_build_object('state', 'cancelled')
+         FROM rooms WHERE id = $1",
+    )
+    .bind(room_id)
+    .bind(user.id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     Ok(())
 }

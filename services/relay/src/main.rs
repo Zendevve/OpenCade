@@ -16,10 +16,10 @@ use std::{
     env,
     net::SocketAddr,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tokio::sync::{mpsc, watch};
+use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -70,12 +70,14 @@ impl Config {
 struct RelayState {
     config: Config,
     rooms: DashMap<String, DashMap<String, RelayPeer>>,
+    used_tickets: DashMap<Uuid, i64>,
 }
 
 #[derive(Debug, Clone)]
 struct RelayPeer {
     connection_id: Uuid,
     sender: mpsc::Sender<Message>,
+    cancel: watch::Sender<()>,
 }
 
 type SharedState = Arc<RelayState>;
@@ -138,12 +140,29 @@ async fn relay_ws_handler(
     {
         return (StatusCode::UNAUTHORIZED, "invalid or expired relay ticket").into_response();
     }
+    state
+        .used_tickets
+        .retain(|_, expires_at| *expires_at >= now);
+    if state
+        .used_tickets
+        .insert(ticket.nonce, ticket.expires_at)
+        .is_some()
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "relay ticket has already been used",
+        )
+            .into_response();
+    }
     let room_id = ticket.room_id;
     let user_id = ticket.user_id;
     let capability = ticket.capability;
+    let expires_at = ticket.expires_at;
     info!(room_id = %room_id, "authorized relay upgrade");
-    ws.on_upgrade(move |socket| handle_socket(socket, state, room_id, user_id, capability))
-        .into_response()
+    ws.on_upgrade(move |socket| {
+        handle_socket(socket, state, room_id, user_id, capability, expires_at)
+    })
+    .into_response()
 }
 
 fn broadcast_message(state: &SharedState, room_id: &str, msg: Message, skip_id: Uuid) -> usize {
@@ -167,11 +186,13 @@ async fn handle_socket(
     room_id: String,
     user_id: String,
     capability: RelayCapability,
+    expires_at: i64,
 ) {
     let id = Uuid::new_v4();
     let room_key = format!("{room_id}:{}", capability.as_str());
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(64);
+    let (cancel_tx, mut cancel_rx) = watch::channel(());
 
     {
         let room = state.rooms.entry(room_key.clone()).or_default();
@@ -179,13 +200,18 @@ async fn handle_socket(
             warn!(room_id = %room_id, "relay room is full");
             return;
         }
-        room.insert(
+        let previous = room.insert(
             user_id.clone(),
             RelayPeer {
                 connection_id: id,
                 sender: tx.clone(),
+                cancel: cancel_tx,
             },
         );
+        if let Some(previous) = previous {
+            let _ = previous.cancel.send(());
+            let _ = previous.sender.try_send(Message::Close(None));
+        }
     }
     info!(peer_id = %id, room_id = %room_id, "relay peer connected");
     info!(
@@ -203,11 +229,42 @@ async fn handle_socket(
         }
     });
 
-    while let Some(result) = ws_receiver.next().await {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or(expires_at);
+    let lifetime = Duration::from_secs(u64::try_from(expires_at.saturating_sub(now)).unwrap_or(0));
+    let expiry = tokio::time::sleep(lifetime);
+    tokio::pin!(expiry);
+    let mut window_started = Instant::now();
+    let mut window_messages = 0_u32;
+    let mut window_bytes = 0_usize;
+
+    loop {
+        let result = tokio::select! {
+            biased;
+            _ = cancel_rx.changed() => break,
+            _ = &mut expiry => {
+                debug!(peer_id = %id, room_id = %room_id, "relay ticket lifetime elapsed");
+                break;
+            }
+            result = ws_receiver.next() => result,
+        };
+        let Some(result) = result else { break };
         match result {
             Ok(msg) => match msg {
                 Message::Text(text) => {
                     let text_str = text.to_string();
+                    if exceeds_rate_limit(
+                        &mut window_started,
+                        &mut window_messages,
+                        &mut window_bytes,
+                        text_str.len(),
+                    ) {
+                        warn!(peer_id = %id, room_id = %room_id, "relay rate limit exceeded");
+                        break;
+                    }
                     if text_str.len() > 64 * 1024 {
                         warn!(peer_id = %id, room_id = %room_id, "oversized relay text rejected");
                         continue;
@@ -246,12 +303,21 @@ async fn handle_socket(
                         }
                         let sent =
                             broadcast_message(&state, &room_key, Message::Text(text.clone()), id);
-                        info!(peer_id = %id, room_id = %room_id, sent = sent, "broadcast envelope");
+                        debug!(peer_id = %id, room_id = %room_id, sent = sent, "broadcast envelope");
                     } else {
                         warn!(peer_id = %id, room_id = %room_id, "non-envelope relay text rejected");
                     }
                 }
                 Message::Binary(bin) => {
+                    if exceeds_rate_limit(
+                        &mut window_started,
+                        &mut window_messages,
+                        &mut window_bytes,
+                        bin.len(),
+                    ) {
+                        warn!(peer_id = %id, room_id = %room_id, "relay rate limit exceeded");
+                        break;
+                    }
                     let maximum = match capability {
                         RelayCapability::Probe => 64 * 1024,
                         RelayCapability::NativeTcpTunnel => 16 * 1024,
@@ -262,7 +328,7 @@ async fn handle_socket(
                     }
                     let sent =
                         broadcast_message(&state, &room_key, Message::Binary(bin.clone()), id);
-                    info!(peer_id = %id, sent = sent, "broadcast binary");
+                    debug!(peer_id = %id, sent = sent, "broadcast binary");
                 }
                 Message::Ping(payload) => {
                     let _ = tx.try_send(Message::Pong(payload));
@@ -303,6 +369,24 @@ async fn handle_socket(
     info!(peer_id = %id, "relay peer disconnected");
 }
 
+fn exceeds_rate_limit(
+    window_started: &mut Instant,
+    messages: &mut u32,
+    bytes: &mut usize,
+    frame_bytes: usize,
+) -> bool {
+    const MAX_MESSAGES_PER_SECOND: u32 = 128;
+    const MAX_BYTES_PER_SECOND: usize = 1024 * 1024;
+    if window_started.elapsed() >= Duration::from_secs(1) {
+        *window_started = Instant::now();
+        *messages = 0;
+        *bytes = 0;
+    }
+    *messages = messages.saturating_add(1);
+    *bytes = bytes.saturating_add(frame_bytes);
+    *messages > MAX_MESSAGES_PER_SECOND || *bytes > MAX_BYTES_PER_SECOND
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
@@ -338,6 +422,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(RelayState {
         config: config.clone(),
         rooms: DashMap::new(),
+        used_tickets: DashMap::new(),
     });
 
     let app = build_relay_app(state);
@@ -370,16 +455,18 @@ mod tests {
                 auth_secret: SECRET.into(),
             },
             rooms: DashMap::new(),
+            used_tickets: DashMap::new(),
         })
     }
 
     fn ticket_url(address: SocketAddr, ticket: &RelayTicket) -> String {
         format!(
-            "ws://{address}/relay?room_id={}&user_id={}&expires_at={}&capability={}&signature={}",
+            "ws://{address}/relay?room_id={}&user_id={}&expires_at={}&capability={}&nonce={}&signature={}",
             ticket.room_id,
             ticket.user_id,
             ticket.expires_at,
             ticket.capability.as_str(),
+            ticket.nonce,
             ticket.signature
         )
     }
@@ -409,6 +496,10 @@ mod tests {
         let (mut host_socket, _) = connect_async(ticket_url(address, &host))
             .await
             .expect("host relay");
+        assert!(
+            connect_async(ticket_url(address, &host)).await.is_err(),
+            "a relay ticket must authorize exactly one upgrade"
+        );
         let (mut guest_socket, _) = connect_async(ticket_url(address, &guest))
             .await
             .expect("guest relay");
@@ -428,6 +519,35 @@ mod tests {
         tampered.room_id = "other-room".into();
         assert!(connect_async(ticket_url(address, &tampered)).await.is_err());
         server.abort();
+    }
+
+    #[test]
+    fn byte_and_message_rate_limits_fail_closed() {
+        let mut started = Instant::now();
+        let mut messages = 127;
+        let mut bytes = 0;
+        assert!(!exceeds_rate_limit(
+            &mut started,
+            &mut messages,
+            &mut bytes,
+            1
+        ));
+        assert!(exceeds_rate_limit(
+            &mut started,
+            &mut messages,
+            &mut bytes,
+            1
+        ));
+
+        let mut started = Instant::now();
+        let mut messages = 0;
+        let mut bytes = 1024 * 1024;
+        assert!(exceeds_rate_limit(
+            &mut started,
+            &mut messages,
+            &mut bytes,
+            1
+        ));
     }
 
     async fn tcp_pair() -> (tokio::net::TcpStream, tokio::net::TcpStream) {

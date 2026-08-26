@@ -151,7 +151,10 @@ export default function App() {
   }
   const logout = async () => {
     try {
-      if (view.name === "match") await cancelMatchProbe(view.roomId);
+      if (view.name === "match") {
+        await cancelMatchProbe(view.roomId);
+        await api.cancelRoom(token, view.roomId).catch(() => undefined);
+      }
       await api.logout(token);
     } finally {
       clearSession();
@@ -167,7 +170,14 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={returnToGames} aria-label="OpenCade games">
+        <button
+          className="brand"
+          disabled={view.name === "match"}
+          onClick={returnToGames}
+          aria-label={
+            view.name === "match" ? "Leave the match before returning to games" : "OpenCade games"
+          }
+        >
           <span className="brand-glyph">OF</span>
           <span>OpenCade</span>
         </button>
@@ -175,7 +185,12 @@ export default function App() {
           <span className={`connection ${connection}`}>{connection}</span>
           <DiagnosticsButton />
           <span className="username">{user.username}</span>
-          <button className="text-button" onClick={() => void logout()}>
+          <button
+            className="text-button"
+            disabled={view.name === "match"}
+            title={view.name === "match" ? "Leave the match before signing out" : undefined}
+            onClick={() => void logout()}
+          >
             Sign out
           </button>
         </div>
@@ -217,21 +232,46 @@ export default function App() {
 }
 
 function isRoomPayload(payload: unknown): payload is RoomPayload {
+  const states = new Set([
+    "waiting",
+    "ready",
+    "challenging",
+    "connecting",
+    "playing",
+    "finished",
+    "cancelled",
+  ]);
   return (
     typeof payload === "object" &&
     payload !== null &&
     typeof Reflect.get(payload, "id") === "string" &&
     typeof Reflect.get(payload, "game_id") === "string" &&
-    typeof Reflect.get(payload, "state") === "string"
+    typeof Reflect.get(payload, "host_id") === "string" &&
+    (Reflect.get(payload, "guest_id") === null ||
+      typeof Reflect.get(payload, "guest_id") === "string") &&
+    states.has(String(Reflect.get(payload, "state")))
   );
 }
 
 function isRoomSnapshot(payload: unknown): payload is RoomSnapshotPayload {
+  const barrier =
+    typeof payload === "object" && payload !== null ? Reflect.get(payload, "barrier") : null;
   return (
     typeof payload === "object" &&
     payload !== null &&
     isRoomPayload(Reflect.get(payload, "room")) &&
-    typeof Reflect.get(payload, "revision") === "number"
+    Number.isSafeInteger(Reflect.get(payload, "revision")) &&
+    Number.isSafeInteger(Reflect.get(payload, "preflight_count")) &&
+    typeof Reflect.get(payload, "compatibility_matched") === "boolean" &&
+    typeof barrier === "object" &&
+    barrier !== null &&
+    typeof Reflect.get(barrier, "room_id") === "string" &&
+    Number.isSafeInteger(Reflect.get(barrier, "ready_count")) &&
+    Number.isSafeInteger(Reflect.get(barrier, "required_count")) &&
+    (Reflect.get(barrier, "launch_at") === null ||
+      (typeof Reflect.get(barrier, "launch_at") === "string" &&
+        !Number.isNaN(Date.parse(String(Reflect.get(barrier, "launch_at")))))) &&
+    ["direct_lan", "tcp_tunnel"].includes(String(Reflect.get(payload, "route")))
   );
 }
 

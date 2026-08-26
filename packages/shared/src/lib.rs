@@ -1,6 +1,7 @@
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use uuid::Uuid;
 
 pub const MAX_RELAY_TICKET_LIFETIME_SECONDS: i64 = 300;
 
@@ -26,6 +27,7 @@ pub struct RelayTicket {
     pub user_id: String,
     pub expires_at: i64,
     pub capability: RelayCapability,
+    pub nonce: Uuid,
     pub signature: String,
 }
 
@@ -61,12 +63,14 @@ impl RelayTicket {
         capability: RelayCapability,
     ) -> Result<Self, RelayTicketError> {
         validate_inputs(secret, room_id, user_id)?;
-        let signature = signature(secret, room_id, user_id, expires_at, capability)?;
+        let nonce = Uuid::new_v4();
+        let signature = signature(secret, room_id, user_id, expires_at, capability, nonce)?;
         Ok(Self {
             room_id: room_id.to_owned(),
             user_id: user_id.to_owned(),
             expires_at,
             capability,
+            nonce,
             signature: hex::encode(signature),
         })
     }
@@ -87,6 +91,7 @@ impl RelayTicket {
             &self.user_id,
             self.expires_at,
             self.capability,
+            self.nonce,
         ));
         mac.verify_slice(&provided)
             .map_err(|_| RelayTicketError::InvalidSignature)
@@ -113,9 +118,12 @@ fn signature(
     user_id: &str,
     expires_at: i64,
     capability: RelayCapability,
+    nonce: Uuid,
 ) -> Result<Vec<u8>, RelayTicketError> {
     let mut mac = relay_mac(secret)?;
-    mac.update(&canonical_claims(room_id, user_id, expires_at, capability));
+    mac.update(&canonical_claims(
+        room_id, user_id, expires_at, capability, nonce,
+    ));
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
@@ -124,9 +132,10 @@ fn canonical_claims(
     user_id: &str,
     expires_at: i64,
     capability: RelayCapability,
+    nonce: Uuid,
 ) -> Vec<u8> {
     format!(
-        "{}:{room_id}:{}:{user_id}:{expires_at}:{}",
+        "{}:{room_id}:{}:{user_id}:{expires_at}:{}:{nonce}",
         room_id.len(),
         user_id.len(),
         capability.as_str()
