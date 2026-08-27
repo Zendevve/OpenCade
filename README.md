@@ -10,11 +10,22 @@
 
 OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch, direct UDP/STUN/hole-punching, authenticated readiness-probe relay fallback, and an experimental native-process RetroArch adapter. Standalone FBNeo netplay, physical cross-NAT results, behavior classification, and real two-machine RetroArch play remain explicitly unproven.
 
-## Support — keep it community-owned
+## ☕ Support OpenCade — Keep Arcade Netplay Free & Independent
 
-OpenCade exists to replace proprietary Fightcade with a community-owned, self-hostable, and fully auditable alternative. Proof-of-Match is done — lobby, signaling, deterministic transport, STUN discovery, bounded hole punching, authenticated relay fallback, and an experimental user-supplied RetroArch process boundary run today. What remains is physical two-Windows Proof-of-Play evidence and production release hardening.
+OpenCade exists to build a completely open-source, self-hostable, and clean-room alternative to proprietary platforms like Fightcade. We believe rollback matchmaking, lobby coordination, and emulator netplay should belong to the community—not locked behind closed binaries, tracking, or paywalls.
 
-**[☕ Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — one coffee keeps the relay and adapter work open. No paywall, no premium.
+### Why Your Support Matters
+Building low-latency distributed netplay across diverse real-world networks requires dedicated resources:
+- **Physical Multi-Node Test Hardware**: Continuous two-machine cross-NAT and cross-ISP testing across varying network topologies (Symmetric NAT, Carrier-Grade NAT, firewall edge cases).
+- **Dedicated Relay & STUN Infrastructure**: Running public fallback relays and high-availability STUN nodes so players behind strict routers can always connect.
+- **CI & Artifact Matrix**: Automated multi-platform builds, integration test runners, and binary integrity scans on every PR.
+- **Emulator Adapter & Protocol R&D**: Clean-room protocol reverse-engineering, deterministic frame-sync research, and pluggable adapter development.
+
+OpenCade is **100% free software (Apache-2.0)**: no paywalled features, no artificial queue priorities, no ads, and no premium tiers. Ever.
+
+👉 **[Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
+
+*Every single contribution directly funds the infrastructure, hardware test benches, and continuous engineering needed to make independent netplay rock solid.*
 
 ---
 
@@ -175,11 +186,11 @@ Full reference: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 General dev chat, architecture questions, emulator adapter ideas, and matchmaking talk — all in one place.
 
-If OpenCade helped you host a match, consider supporting the build: **https://buymeacoffee.com/zendevve**
+👉 **[Support OpenCade on Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) — and if you can't contribute code, sponsorship via [Buy Me a Coffee](https://buymeacoffee.com/zendevve) keeps CI, docs, and LAN testing funded.
+See [CONTRIBUTING.md](CONTRIBUTING.md). If you can't contribute code, you can still keep the project moving — every coffee funds test hardware, CI minutes, and public relay capacity. [☕ https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)
 
 ## Security
 
