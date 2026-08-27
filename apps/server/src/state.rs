@@ -19,6 +19,9 @@ use crate::config::Config;
 #[derive(Debug, Default)]
 pub struct Metrics {
     pub http_requests_total: AtomicU64,
+    pub http_request_duration_micros: AtomicU64,
+    pub http_responses_4xx: AtomicU64,
+    pub http_responses_5xx: AtomicU64,
     pub rooms_created: AtomicU64,
 }
 
@@ -45,6 +48,8 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
 
     pub auth_rate_limiter: Arc<AuthRateLimiter>,
+    /// Bounds CPU-heavy Argon2 work so authentication bursts cannot starve Tokio workers.
+    pub password_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -58,6 +63,7 @@ impl AppState {
             ws_hub: std::sync::Arc::new(dashmap::DashMap::new()),
             metrics: Arc::new(Metrics::default()),
             auth_rate_limiter: Arc::new(AuthRateLimiter::default()),
+            password_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
         }
     }
 
@@ -74,6 +80,21 @@ impl AppState {
         };
         if let Err(error) = target.try_send(Message::Text(text.into())) {
             tracing::warn!(%error, %user_id, %message_type, "websocket notification queue unavailable");
+        }
+    }
+
+    pub fn require_operator(&self, supplied: Option<&str>) -> Result<(), crate::error::AppError> {
+        use sha2::{Digest, Sha256};
+        let supplied = supplied
+            .ok_or_else(|| crate::error::AppError::Unauthorized("missing operator token".into()))?;
+        let expected = Sha256::digest(self.config.operator_token.as_bytes());
+        let actual = Sha256::digest(supplied.as_bytes());
+        if expected.as_slice() == actual.as_slice() {
+            Ok(())
+        } else {
+            Err(crate::error::AppError::Unauthorized(
+                "invalid operator token".into(),
+            ))
         }
     }
 }

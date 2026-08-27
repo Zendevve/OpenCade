@@ -102,11 +102,24 @@ pub async fn register(
         ));
     }
 
-    let salt = SaltString::generate(&mut OsRng);
-    let password_hash = Argon2::default()
-        .hash_password(request.password.as_bytes(), &salt)
-        .map_err(|_| AppError::Internal("password hashing failed".into()))?
-        .to_string();
+    let permit = state
+        .password_semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| AppError::Internal("password worker unavailable".into()))?;
+    let password = request.password.clone();
+    let password_hash = tokio::task::spawn_blocking(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map(|hash| hash.to_string())
+            .map_err(|_| ())
+    })
+    .await
+    .map_err(|_| AppError::Internal("password worker failed".into()))?
+    .map_err(|_| AppError::Internal("password hashing failed".into()))?;
+    drop(permit);
     let token = generate_session_token();
     let token_hash = hash_token(&token);
     let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
@@ -185,11 +198,7 @@ pub async fn login(
     .map_err(|error| database_error(error, "find login user"))?;
 
     let Some(row) = row else {
-        let salt = SaltString::encode_b64(b"opencade-dummy-salt")
-            .map_err(|_| AppError::Internal("password verifier unavailable".into()))?;
-        Argon2::default()
-            .hash_password(request.password.as_bytes(), &salt)
-            .map_err(|_| AppError::Internal("password verifier unavailable".into()))?;
+        run_password_verification(&state, request.password, None).await?;
         return Err(AppError::Unauthorized("invalid credentials".into()));
     };
 
@@ -205,11 +214,9 @@ pub async fn login(
     let stored_hash: String = row
         .try_get("password_hash")
         .map_err(|_| AppError::Internal("invalid user record".into()))?;
-    let parsed_hash = PasswordHash::new(&stored_hash)
-        .map_err(|_| AppError::Internal("invalid password record".into()))?;
-    Argon2::default()
-        .verify_password(request.password.as_bytes(), &parsed_hash)
-        .map_err(|_| AppError::Unauthorized("invalid credentials".into()))?;
+    if !run_password_verification(&state, request.password, Some(stored_hash)).await? {
+        return Err(AppError::Unauthorized("invalid credentials".into()));
+    }
     state.auth_rate_limiter.clear(&rate_key);
 
     let token = generate_session_token();
@@ -231,6 +238,36 @@ pub async fn login(
         "auth.logged_in",
         json!({ "user": user, "token": token, "expires_at": expires_at }),
     )))
+}
+
+async fn run_password_verification(
+    state: &AppState,
+    password: String,
+    stored_hash: Option<String>,
+) -> Result<bool, AppError> {
+    let permit = state
+        .password_semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| AppError::Internal("password worker unavailable".into()))?;
+    let verified = tokio::task::spawn_blocking(move || match stored_hash {
+        Some(stored_hash) => PasswordHash::new(&stored_hash).ok().is_some_and(|parsed| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok()
+        }),
+        None => match SaltString::encode_b64(b"opencade-dummy-salt") {
+            Ok(salt) => Argon2::default()
+                .hash_password(password.as_bytes(), &salt)
+                .is_ok(),
+            Err(_) => false,
+        },
+    })
+    .await
+    .map_err(|_| AppError::Internal("password worker failed".into()))?;
+    drop(permit);
+    Ok(verified)
 }
 
 pub async fn logout(

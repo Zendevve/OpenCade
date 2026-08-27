@@ -1,4 +1,14 @@
-import type { Envelope, RoomPayload } from "@opencade/protocol";
+import { validateEnvelope } from "@opencade/protocol";
+import type {
+  AlphaFailureReport,
+  Envelope,
+  MatchPreflightPayload,
+  MatchReport,
+  ProductEventPayload,
+  RoomInvitePayload,
+  RoomPayload,
+  RoomSnapshotPayload,
+} from "@opencade/protocol";
 
 export type User = { id: string; username: string; email?: string | null };
 export type AuthPayload = { user: User; token: string; expires_at: string };
@@ -27,11 +37,12 @@ export type RelayTicket = {
     room_id: string;
     user_id: string;
     expires_at: number;
+    nonce: string;
     signature: string;
+    capability: "probe" | "native_tcp_tunnel";
   };
 };
 export type MatchLaunchGrant = { grant: string; expires_at: string };
-
 type ErrorPayload = { code?: string; message?: string };
 
 export class ApiError extends Error {
@@ -97,7 +108,18 @@ async function request<T>(path: string, token?: string | null, init?: RequestIni
 }
 
 function isEnvelope(value: unknown): value is Envelope<unknown> {
-  return typeof value === "object" && value !== null && "payload" in value && "type" in value;
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    typeof Reflect.get(value, "type") !== "string" ||
+    typeof Reflect.get(value, "version") !== "string" ||
+    typeof Reflect.get(value, "request_id") !== "string" ||
+    typeof Reflect.get(value, "timestamp") !== "string" ||
+    Reflect.get(value, "payload") === undefined
+  ) {
+    return false;
+  }
+  return validateEnvelope(value as Envelope<unknown>).ok;
 }
 
 function errorPayload(value: unknown): ErrorPayload {
@@ -151,12 +173,15 @@ export const api = {
       token,
       post({ exit_code: exitCode ?? null })
     ),
+  cancelRoom: (token: string, roomId: string) =>
+    request<RoomPayload>(`/api/v1/rooms/${roomId}/cancel`, token, post()),
   createLaunchGrant: (
     token: string,
     roomId: string,
     localEndpoint: string,
     peerEndpoint: string,
-    inputDelayFrames = 2
+    inputDelayFrames = 2,
+    campaignMode = true
   ) =>
     request<MatchLaunchGrant>(
       `/api/v1/rooms/${roomId}/launch-grant`,
@@ -165,8 +190,33 @@ export const api = {
         local_endpoint: localEndpoint,
         peer_endpoint: peerEndpoint,
         input_delay_frames: inputDelayFrames,
+        campaign_mode: campaignMode,
       })
     ),
   relayTicket: (token: string, roomId: string) =>
     request<RelayTicket>(`/api/v1/rooms/${roomId}/relay-ticket`, token, post()),
+  nativeTunnelTicket: (token: string, roomId: string) =>
+    request<RelayTicket>(`/api/v1/rooms/${roomId}/native-tunnel-ticket`, token, post()),
+  createInvite: (token: string, roomId: string) =>
+    request<RoomInvitePayload>(`/api/v1/rooms/${roomId}/invite`, token, post()),
+  joinInvite: (token: string, code: string) =>
+    request<RoomPayload>("/api/v1/invites/join", token, post({ code })),
+  submitPreflight: (token: string, roomId: string, payload: MatchPreflightPayload) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/preflight`, token, post(payload)),
+  roomSnapshot: (token: string, roomId: string) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/snapshot`, token),
+  readyToLaunch: (token: string, roomId: string) =>
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/ready`, token, post()),
+  submitEvidence: (token: string, evidence: MatchReport | AlphaFailureReport) =>
+    request<{ digest: string; duplicate: boolean }>(
+      "/api/v1/alpha/evidence",
+      token,
+      post({ evidence })
+    ),
+  recordProductEvent: (token: string, event: ProductEventPayload) =>
+    request<{ accepted: boolean; duplicate: boolean }>(
+      "/api/v1/telemetry/events",
+      token,
+      post(event)
+    ),
 };

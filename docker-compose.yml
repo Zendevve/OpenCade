@@ -6,10 +6,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: opencade
-      POSTGRES_PASSWORD: opencade
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD to a random value}
       POSTGRES_DB: opencade
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,6 +19,27 @@ services:
       retries: 10
       start_period: 10s
 
+  migrate:
+    build:
+      context: .
+      dockerfile: ./apps/server/Dockerfile
+    image: opencade-server:local
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["opencade-server", "--migrate"]
+    environment: &server-environment
+      DATABASE_URL: postgres://opencade:${POSTGRES_PASSWORD}@db:5432/opencade
+      RUST_LOG: info
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:?set OPERATOR_TOKEN to at least 32 random bytes}
+      OPENCADE_ENV: production
+      PORT: 8080
+      PUBLIC_RELAY_URL: ${PUBLIC_RELAY_URL:?set PUBLIC_RELAY_URL to the externally reachable wss relay URL}
+      STUN_HOST: ${STUN_HOST:?set STUN_HOST to the externally reachable STUN host}
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
+
   opencade-server:
     build:
       context: .
@@ -26,17 +47,9 @@ services:
     image: opencade-server:local
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://opencade:opencade@db:5432/opencade
-      RUST_LOG: info
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
-      OPENCADE_ENV: production
-      PORT: 8080
-      # Must be reachable by desktop clients; override for remote/LAN deployments.
-      RELAY_URL: ${RELAY_URL:-ws://localhost:8081/relay}
-      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
+      migrate:
+        condition: service_completed_successfully
+    environment: *server-environment
     ports:
       - "8080:8080"
     healthcheck:
@@ -58,6 +71,12 @@ services:
       RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
     ports:
       - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 volumes:
   pgdata:
     driver: local

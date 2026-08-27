@@ -1,6 +1,9 @@
+pub mod alpha;
+pub mod alpha_evidence;
 pub mod auth;
 pub mod challenges;
 pub mod games;
 pub mod lobbies;
 pub mod rooms;
 pub mod servers;
+pub mod telemetry;

@@ -14,6 +14,14 @@ pub enum ConfigError {
     IncompleteRelayConfig,
     #[error("RELAY_AUTH_SECRET must contain at least 32 characters")]
     WeakRelaySecret,
+    #[error("production requires PUBLIC_RELAY_URL and RELAY_AUTH_SECRET")]
+    MissingProductionRelay,
+    #[error("production PUBLIC_RELAY_URL must use wss and a publicly reachable host")]
+    UnsafeProductionRelay,
+    #[error("production STUN_HOST must be a publicly reachable host")]
+    UnsafeProductionStun,
+    #[error("OPERATOR_TOKEN must contain at least 32 characters in production")]
+    WeakOperatorToken,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -28,6 +36,7 @@ pub struct Config {
     pub stun_port: u16,
     pub relay_url: Option<String>,
     pub relay_secret: Option<String>,
+    pub operator_token: String,
 }
 
 impl std::fmt::Debug for Config {
@@ -47,6 +56,7 @@ impl std::fmt::Debug for Config {
                 "relay_secret",
                 &self.relay_secret.as_ref().map(|_| "<redacted>"),
             )
+            .field("operator_token", &"<redacted>")
             .finish()
     }
 }
@@ -75,6 +85,11 @@ impl Config {
         if production && session_secret.len() < 32 {
             return Err(ConfigError::WeakProductionSecret);
         }
+        let operator_token =
+            lookup("OPERATOR_TOKEN").unwrap_or_else(|| "dev-operator-token-change-me".to_string());
+        if production && operator_token.len() < 32 {
+            return Err(ConfigError::WeakOperatorToken);
+        }
 
         let allowed_origins = lookup("ALLOWED_ORIGINS")
             .unwrap_or_else(|| {
@@ -99,7 +114,9 @@ impl Config {
                 .ok_or(ConfigError::InvalidStunPort)?,
             None => 3478,
         };
-        let relay_url = lookup("RELAY_URL")
+        let public_relay_url = lookup("PUBLIC_RELAY_URL");
+        let relay_url = public_relay_url
+            .or_else(|| lookup("RELAY_URL"))
             .map(|v| v.trim().to_owned())
             .filter(|v| !v.is_empty());
         let relay_secret = lookup("RELAY_AUTH_SECRET")
@@ -114,6 +131,17 @@ impl Config {
         {
             return Err(ConfigError::WeakRelaySecret);
         }
+        if production {
+            let relay = relay_url
+                .as_deref()
+                .ok_or(ConfigError::MissingProductionRelay)?;
+            if !is_safe_public_relay(relay) {
+                return Err(ConfigError::UnsafeProductionRelay);
+            }
+            if !is_public_host(&stun_host) {
+                return Err(ConfigError::UnsafeProductionStun);
+            }
+        }
 
         Ok(Self {
             database_url,
@@ -126,6 +154,7 @@ impl Config {
             stun_port,
             relay_url,
             relay_secret,
+            operator_token,
         })
     }
 
@@ -141,8 +170,45 @@ impl Config {
             stun_port: 3478,
             relay_url: None,
             relay_secret: None,
+            operator_token: "test-operator-token-with-32-characters".into(),
         }
     }
+}
+
+fn is_safe_public_relay(value: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(value) else {
+        return false;
+    };
+    parsed.scheme() == "wss"
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && parsed.query().is_none()
+        && parsed.fragment().is_none()
+        && parsed.host_str().is_some_and(is_public_host)
+}
+
+fn is_public_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if let Ok(address) = host.parse::<std::net::IpAddr>() {
+        return match address {
+            std::net::IpAddr::V4(address) => {
+                !(address.is_private()
+                    || address.is_loopback()
+                    || address.is_link_local()
+                    || address.is_unspecified()
+                    || address.is_broadcast()
+                    || address.is_documentation())
+            }
+            std::net::IpAddr::V6(address) => {
+                !(address.is_loopback()
+                    || address.is_unspecified()
+                    || address.is_multicast()
+                    || address.is_unique_local()
+                    || address.is_unicast_link_local())
+            }
+        };
+    }
+    !host.is_empty() && host != "localhost" && !host.ends_with(".local")
 }
 
 #[cfg(test)]
@@ -264,6 +330,46 @@ mod tests {
                 ("RELAY_AUTH_SECRET", "weak"),
             ]),
             Err(ConfigError::WeakRelaySecret)
+        );
+    }
+
+    #[test]
+    fn production_requires_public_network_endpoints_and_operator_token() {
+        let base = [
+            ("OPENCADE_ENV", "production"),
+            ("SESSION_SECRET", "session-secret-at-least-32-characters"),
+            ("RELAY_AUTH_SECRET", "relay-secret-at-least-32-characters"),
+            ("PUBLIC_RELAY_URL", "wss://relay.example.com/relay"),
+            ("STUN_HOST", "stun.example.com"),
+        ];
+        assert_eq!(load_config(&base), Err(ConfigError::WeakOperatorToken));
+
+        let mut valid = base.to_vec();
+        valid.push(("OPERATOR_TOKEN", "operator-token-at-least-32-characters"));
+        assert!(load_config(&valid).is_ok());
+
+        let mut unsafe_relay = valid.clone();
+        unsafe_relay.retain(|(key, _)| *key != "PUBLIC_RELAY_URL");
+        unsafe_relay.push(("PUBLIC_RELAY_URL", "ws://127.0.0.1:8081/relay"));
+        assert_eq!(
+            load_config(&unsafe_relay),
+            Err(ConfigError::UnsafeProductionRelay)
+        );
+
+        let mut private_relay = valid.clone();
+        private_relay.retain(|(key, _)| *key != "PUBLIC_RELAY_URL");
+        private_relay.push(("PUBLIC_RELAY_URL", "wss://192.168.1.10/relay"));
+        assert_eq!(
+            load_config(&private_relay),
+            Err(ConfigError::UnsafeProductionRelay)
+        );
+
+        let mut credentialed_relay = valid;
+        credentialed_relay.retain(|(key, _)| *key != "PUBLIC_RELAY_URL");
+        credentialed_relay.push(("PUBLIC_RELAY_URL", "wss://user@relay.example.com/relay"));
+        assert_eq!(
+            load_config(&credentialed_relay),
+            Err(ConfigError::UnsafeProductionRelay)
         );
     }
 }

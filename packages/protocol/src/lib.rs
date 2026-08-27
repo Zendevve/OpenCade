@@ -270,6 +270,56 @@ pub struct MatchReportCompatibility {
     pub content_sha256: String,
 }
 
+/// Native route capabilities are explicit: a readiness probe never implies emulator traffic.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/NativeRouteCapability.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum NativeRouteCapability {
+    DirectLan,
+    TcpTunnel,
+}
+
+/// Privacy-safe compatibility handshake performed before either emulator is launched.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchPreflightPayload.ts")]
+pub struct MatchPreflightPayload {
+    pub room_id: String,
+    pub compatibility: MatchReportCompatibility,
+    pub native_port_available: bool,
+}
+
+/// Server-authoritative launch barrier shared by both room participants.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/LaunchBarrierPayload.ts")]
+pub struct LaunchBarrierPayload {
+    pub room_id: String,
+    pub ready_count: u8,
+    pub required_count: u8,
+    pub launch_at: Option<DateTime<Utc>>,
+}
+
+/// Durable room snapshot used after initial connection and every reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/RoomSnapshotPayload.ts")]
+pub struct RoomSnapshotPayload {
+    pub room: RoomPayload,
+    #[ts(type = "number")]
+    pub revision: i64,
+    pub preflight_count: u8,
+    pub compatibility_matched: bool,
+    pub barrier: LaunchBarrierPayload,
+    pub route: NativeRouteCapability,
+}
+
+/// Short-lived room invite. Only the creator receives the secret code.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/RoomInvitePayload.ts")]
+pub struct RoomInvitePayload {
+    pub room_id: String,
+    pub code: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 /// Stable stages for privacy-minimized evidence from an abandoned alpha attempt.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[ts(export, export_to = "../src/generated/AlphaFailureStage.ts")]
@@ -345,6 +395,74 @@ pub struct RoomPayload {
     pub host_id: String,
     pub guest_id: Option<String>,
     pub state: RoomState,
+}
+
+/// Product-funnel events accepted by the privacy-minimized telemetry endpoint.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ProductEventName.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum ProductEventName {
+    GameSelected,
+    ReadinessCompleted,
+    ReadinessBlocked,
+    LobbyEntered,
+    LaunchAttempted,
+    LaunchSucceeded,
+}
+
+/// Stable readiness checks used for aggregate blocker analysis.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
+#[ts(export, export_to = "../src/generated/ReadinessCheckId.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessCheckId {
+    Desktop,
+    ControlPlane,
+    GameRuntime,
+    NativePort,
+    Network,
+}
+
+/// Closed, data-minimized event contract. It intentionally has no arbitrary properties field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ProductEventPayload.ts")]
+pub struct ProductEventPayload {
+    pub event_id: String,
+    pub anonymous_session_id: String,
+    pub event: ProductEventName,
+    pub game_id: String,
+    #[serde(default)]
+    pub blocked_checks: Vec<ReadinessCheckId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ReadinessBlockCount.ts")]
+pub struct ReadinessBlockCount {
+    pub check: ReadinessCheckId,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+/// Rolling activation funnel. Small blocker cohorts are suppressed by the server.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export, export_to = "../src/generated/ActivationSummaryPayload.ts")]
+pub struct ActivationSummaryPayload {
+    pub window_days: u16,
+    #[ts(type = "number")]
+    pub selected_sessions: i64,
+    #[ts(type = "number")]
+    pub ready_sessions: i64,
+    #[ts(type = "number")]
+    pub lobby_sessions: i64,
+    #[ts(type = "number")]
+    pub launch_attempted_sessions: i64,
+    #[ts(type = "number")]
+    pub launch_succeeded_sessions: i64,
+    #[ts(type = "number")]
+    pub readiness_blocked_events: i64,
+    pub selected_to_ready_rate: f64,
+    pub selected_to_lobby_rate: f64,
+    pub selected_to_launch_rate: f64,
+    pub blocked_by_check: Vec<ReadinessBlockCount>,
 }
 
 // ---------------------------------------------------------------------------
@@ -623,5 +741,24 @@ mod tests {
         let reply = Envelope::reply("pong", "request-123", json!({}));
         assert_eq!(reply.request_id, "request-123");
         assert_eq!(reply.msg_type, "pong");
+    }
+
+    #[test]
+    fn product_events_use_closed_snake_case_contracts() {
+        let payload = ProductEventPayload {
+            event_id: Uuid::new_v4().to_string(),
+            anonymous_session_id: Uuid::new_v4().to_string(),
+            event: ProductEventName::ReadinessBlocked,
+            game_id: "sfiii3".into(),
+            blocked_checks: vec![ReadinessCheckId::GameRuntime],
+        };
+        let value = serde_json::to_value(&payload).expect("serialize product event");
+        assert_eq!(value["event"], "readiness_blocked");
+        assert_eq!(value["blocked_checks"][0], "game_runtime");
+        assert!(value.get("properties").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProductEventPayload>(value).expect("deserialize event"),
+            payload
+        );
     }
 }

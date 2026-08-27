@@ -53,8 +53,6 @@ fn validate_game_id(game_id: &str) -> Result<(), String> {
 
 #[derive(Debug, Deserialize)]
 pub struct RetroarchMatchRequest {
-    api_url: String,
-    session_token: String,
     launch_grant: String,
 }
 
@@ -86,6 +84,42 @@ pub struct RetroarchMatchLaunch {
     adapter: &'static str,
     room_id: String,
     fingerprint: CompatibilityFingerprint,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RetroarchPreflight {
+    adapter: &'static str,
+    emulator_version: Option<String>,
+    executable_sha256: String,
+    core_sha256: String,
+    content_sha256: String,
+    native_port_available: bool,
+}
+
+#[tauri::command]
+pub async fn retroarch_preflight(
+    app: tauri::AppHandle,
+    game_id: String,
+) -> Result<RetroarchPreflight, String> {
+    validate_game_id(&game_id)?;
+    let root = retroarch_root(&app)?;
+    let adapter = RetroarchAdapter::new(&root);
+    let rom = root.join("ROMs").join(format!("{game_id}.zip"));
+    let fingerprint = tokio::task::spawn_blocking(move || adapter.fingerprint(&rom))
+        .await
+        .map_err(|_| "compatibility preflight worker failed".to_string())?
+        .map_err(|error| error.to_string())?;
+    let native_port_available =
+        ensure_native_port_available("0.0.0.0:55435".parse().expect("static socket address"))
+            .is_ok();
+    Ok(RetroarchPreflight {
+        adapter: "retroarch_fbneo",
+        emulator_version: fingerprint.retroarch_version,
+        executable_sha256: fingerprint.executable_sha256,
+        core_sha256: fingerprint.core_sha256,
+        content_sha256: fingerprint.content_sha256,
+        native_port_available,
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,9 +160,11 @@ pub fn launch_game(
 pub async fn launch_retroarch_match(
     app: tauri::AppHandle,
     state: tauri::State<'_, ProcessState>,
+    runtime: tauri::State<'_, crate::commands::runtime::RuntimeConfig>,
     request: RetroarchMatchRequest,
 ) -> Result<RetroarchMatchLaunch, String> {
-    let authorized = consume_launch_grant(&request).await?;
+    let session_token = crate::commands::session::require_session_token()?;
+    let authorized = consume_launch_grant(&runtime.api_url, &session_token, &request).await?;
     validate_game_id(&authorized.game_id)?;
     let root = retroarch_root(&app)?;
     let adapter = RetroarchAdapter::new(&root);
@@ -163,8 +199,8 @@ pub async fn launch_retroarch_match(
     .map_err(|error| error.to_string())?;
     let room_id = authorized.room_id;
     let callback = NativeExitCallback {
-        api_url: request.api_url,
-        session_token: request.session_token,
+        api_url: runtime.api_url.clone(),
+        session_token,
         room_id: room_id.clone(),
     };
     let pid = register_child(&app, &state, child, Some(callback))?;
@@ -183,8 +219,10 @@ pub fn stop_game(state: tauri::State<'_, ProcessState>, pid: u32) -> Result<(), 
         .lock()
         .map_err(|_| "process registry unavailable".to_string())?
         .get(&pid)
-        .cloned()
-        .ok_or_else(|| "emulator process not found".to_string())?;
+        .cloned();
+    let Some(child) = child else {
+        return Ok(());
+    };
     child
         .lock()
         .map_err(|_| "emulator process unavailable".to_string())?
@@ -193,27 +231,17 @@ pub fn stop_game(state: tauri::State<'_, ProcessState>, pid: u32) -> Result<(), 
     Ok(())
 }
 
-async fn consume_launch_grant(request: &RetroarchMatchRequest) -> Result<AuthorizedLaunch, String> {
-    let base = reqwest::Url::parse(&request.api_url).map_err(|_| "OpenCade API URL is invalid")?;
-    if !matches!(base.scheme(), "http" | "https")
-        || !base.username().is_empty()
-        || base.password().is_some()
-        || base.query().is_some()
-        || base.fragment().is_some()
-    {
-        return Err("OpenCade API URL is not allowed".into());
-    }
-    if base.scheme() == "http"
-        && !matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
-    {
-        return Err("remote OpenCade API URLs must use HTTPS".into());
-    }
-    if request.session_token.is_empty() || request.launch_grant.is_empty() {
+async fn consume_launch_grant(
+    api_url: &str,
+    session_token: &str,
+    request: &RetroarchMatchRequest,
+) -> Result<AuthorizedLaunch, String> {
+    if session_token.is_empty() || request.launch_grant.is_empty() {
         return Err("authenticated launch grant is required".into());
     }
     let endpoint = format!(
         "{}/api/v1/match-launch-grants/consume",
-        request.api_url.trim_end_matches('/')
+        api_url.trim_end_matches('/')
     );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -221,7 +249,7 @@ async fn consume_launch_grant(request: &RetroarchMatchRequest) -> Result<Authori
         .map_err(|_| "launch authorization client unavailable")?;
     let response = client
         .post(endpoint)
-        .bearer_auth(&request.session_token)
+        .bearer_auth(session_token)
         .json(&ConsumeLaunchGrant {
             grant: &request.launch_grant,
         })
@@ -274,12 +302,24 @@ fn register_child(
         drain_process_output(stderr);
     }
     let pid = child.id();
+    let mut registry = match state.children.lock() {
+        Ok(registry) => registry,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("process registry unavailable".into());
+        }
+    };
     let child = Arc::new(Mutex::new(child));
-    state
-        .children
-        .lock()
-        .map_err(|_| "process registry unavailable".to_string())?
-        .insert(pid, Arc::clone(&child));
+    if registry.contains_key(&pid) {
+        if let Ok(mut child) = child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        return Err("process id is already supervised".into());
+    }
+    registry.insert(pid, Arc::clone(&child));
+    drop(registry);
 
     let app = app.clone();
     std::thread::spawn(move || {
@@ -319,6 +359,21 @@ fn register_child(
         }
     });
     Ok(pid)
+}
+
+impl ProcessState {
+    pub fn shutdown_all(&self) {
+        let children = match self.children.lock() {
+            Ok(mut registry) => registry.drain().map(|(_, child)| child).collect::<Vec<_>>(),
+            Err(_) => return,
+        };
+        for child in children {
+            if let Ok(mut child) = child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
 }
 
 fn report_native_exit(callback: &NativeExitCallback, exit_code: Option<i32>) {

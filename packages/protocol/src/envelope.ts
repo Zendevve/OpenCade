@@ -53,7 +53,19 @@ export function validateEnvelope<T>(
 }
 
 export function parseEnvelope<T = unknown>(raw: string): Envelope<T> {
-  const parsed = JSON.parse(raw) as Envelope<T>;
+  const decoded: unknown = JSON.parse(raw);
+  if (
+    typeof decoded !== "object" ||
+    decoded === null ||
+    !("type" in decoded) ||
+    !("version" in decoded) ||
+    !("request_id" in decoded) ||
+    !("timestamp" in decoded) ||
+    !("payload" in decoded)
+  ) {
+    throw new Error("invalid envelope shape: missing required fields");
+  }
+  const parsed = decoded as Envelope<unknown>;
   if (
     typeof parsed.type !== "string" ||
     typeof parsed.version !== "string" ||
@@ -63,7 +75,9 @@ export function parseEnvelope<T = unknown>(raw: string): Envelope<T> {
   ) {
     throw new Error("invalid envelope shape: missing required fields");
   }
-  return parsed;
+  const validation = validateEnvelope(parsed);
+  if (!validation.ok) throw new Error(validation.error);
+  return parsed as Envelope<T>;
 }
 
 export function serializeEnvelope<T>(envelope: Envelope<T>): string {

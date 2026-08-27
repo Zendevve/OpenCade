@@ -1,4 +1,4 @@
-use opencade_server::{AppState, Config, build_app, shutdown_signal};
+use opencade_server::{AppState, Config, build_app, lifecycle, shutdown_signal};
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use tracing::info;
@@ -9,11 +9,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.rust_log.clone()));
-    tracing_subscriber::fmt()
+    let subscriber = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_target(false)
-        .compact()
-        .init();
+        .with_target(false);
+    if config.production {
+        subscriber.json().init();
+    } else {
+        subscriber.compact().init();
+    }
 
     let pool = PgPoolOptions::new()
         .max_connections(10)
@@ -26,13 +29,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    sqlx::migrate!("./migrations").run(&pool).await?;
-
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!(%addr, "opencade server listening");
 
-    axum::serve(listener, build_app(AppState::new(pool, config)))
+    let state = AppState::new(pool, config);
+    lifecycle::spawn_reconciler(state.clone());
+    axum::serve(listener, build_app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 

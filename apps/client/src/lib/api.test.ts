@@ -11,7 +11,13 @@ describe("runtime API configuration", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ type: "games.list", payload: { games: [] } }),
+      json: async () => ({
+        type: "games.list",
+        version: "1.0",
+        request_id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        payload: { games: [] },
+      }),
     });
     vi.stubGlobal("fetch", fetchMock);
     configureApiBase("https://alpha.example.com/");
@@ -22,6 +28,18 @@ describe("runtime API configuration", () => {
       "https://alpha.example.com/api/v1/games",
       expect.objectContaining({ headers: expect.any(Headers) })
     );
+  });
+
+  it("rejects a successful response with an incomplete wire envelope", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ type: "games.list", payload: { games: [] } }),
+      })
+    );
+    await expect(api.games("session-token")).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("rejects non-http origins and embedded credentials", () => {

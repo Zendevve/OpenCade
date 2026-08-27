@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: cargo build -p opencade-networking --bins --release --locked
+      - run: cargo build --manifest-path apps/client/src-tauri/Cargo.toml --release --locked
+      - name: Require and import Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE_BASE64 -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "Windows signing secrets are required for a release"
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "opencade-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
+          $env:OPENCADE_CERT_THUMBPRINT = $certificate.Thumbprint
+          "OPENCADE_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Sign and package alpha kit
+        shell: pwsh
+        run: |
+          $signTool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (-not $signTool) { throw "signtool.exe was not found" }
+          $executables = @(
+            "apps\client\src-tauri\target\release\opencade-client.exe",
+            "target\release\opencade-match-probe.exe",
+            "target\release\opencade-match-verify.exe",
+            "target\release\opencade-alpha-summary.exe"
+          )
+          foreach ($executable in $executables) {
+            & $signTool sign /sha1 $env:OPENCADE_CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $executable
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed: $executable" }
+            & $signTool verify /pa /all $executable
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed: $executable" }
+          }
+          .\scripts\alpha\OpenCade-Alpha.ps1 -Mode Package -KitRoot release-kit
+          Compress-Archive -Path release-kit\* -DestinationPath "opencade-$env:GITHUB_REF_NAME-windows-x64.zip"
+          (Get-FileHash "opencade-$env:GITHUB_REF_NAME-windows-x64.zip" -Algorithm SHA256).Hash.ToLower() + "  opencade-$env:GITHUB_REF_NAME-windows-x64.zip" | Out-File "SHA256SUMS.txt" -Encoding ascii
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: opencade-*-windows-x64.zip
+      - name: Publish immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/dependency-graph/sbom" > sbom.spdx.json
+          gh release create "$GITHUB_REF_NAME" opencade-*-windows-x64.zip SHA256SUMS.txt sbom.spdx.json --verify-tag --generate-notes

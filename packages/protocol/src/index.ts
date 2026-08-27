@@ -11,6 +11,11 @@ export type {
   MatchReport,
   MatchReportClient,
   MatchReportCompatibility,
+  MatchPreflightPayload,
+  LaunchBarrierPayload,
+  NativeRouteCapability,
+  RoomInvitePayload,
+  RoomSnapshotPayload,
   AlphaEvidenceKind,
   AlphaFailureReport,
   AlphaFailureStage,
@@ -28,5 +33,10 @@ export type {
   HelloPayload,
   ErrorPayload,
   EnvelopeType,
+  ActivationSummaryPayload,
+  ProductEventName,
+  ProductEventPayload,
+  ReadinessBlockCount,
+  ReadinessCheckId,
 } from "./messages.js";
 export { isKnownEnvelopeType } from "./messages.js";

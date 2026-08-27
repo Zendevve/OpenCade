@@ -120,6 +120,17 @@ describe("envelope roundtrip", () => {
 
   it("rejects invalid shape", () => {
     expect(() => parseEnvelope('{"type":"x"}')).toThrow();
+    expect(() =>
+      parseEnvelope(
+        JSON.stringify({
+          type: "x",
+          version: "2.0",
+          request_id: "request",
+          timestamp: new Date().toISOString(),
+          payload: {},
+        })
+      )
+    ).toThrow(/unsupported version/);
   });
   it("roundtrips room state ready", () => {
     const room: RoomPayload = {

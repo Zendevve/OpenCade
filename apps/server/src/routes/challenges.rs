@@ -1,5 +1,6 @@
 use axum::{Json, extract::Path, extract::State, http::StatusCode};
-use opencade_protocol::Envelope;
+use chrono::{DateTime, Utc};
+use opencade_protocol::{Envelope, RoomState};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{Postgres, Row, Transaction};
@@ -27,6 +28,9 @@ struct ChallengeView {
     challenger_id: Uuid,
     challenged_id: Uuid,
     state: String,
+    expires_at: DateTime<Utc>,
+    #[serde(skip)]
+    room_state: String,
 }
 
 async fn locked_challenge(
@@ -35,7 +39,8 @@ async fn locked_challenge(
 ) -> Result<ChallengeView, AppError> {
     let row = sqlx::query(
         "SELECT challenges.id, challenges.room_id, rooms.game_id,
-                challenges.challenger_id, challenges.challenged_id, challenges.state
+                challenges.challenger_id, challenges.challenged_id, challenges.state,
+                challenges.expires_at, rooms.state AS room_state
          FROM challenges
          JOIN rooms ON rooms.id = challenges.room_id
          WHERE challenges.id = $1
@@ -53,6 +58,8 @@ async fn locked_challenge(
         challenger_id: row.try_get("challenger_id").map_err(invalid_record)?,
         challenged_id: row.try_get("challenged_id").map_err(invalid_record)?,
         state: row.try_get("state").map_err(invalid_record)?,
+        expires_at: row.try_get("expires_at").map_err(invalid_record)?,
+        room_state: row.try_get("room_state").map_err(invalid_record)?,
     })
 }
 
@@ -90,22 +97,56 @@ pub async fn create_challenge(
     }
 
     let mut transaction = state.pool.begin().await?;
+    let recent = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM challenges
+         WHERE challenger_id = $1 AND created_at > now() - interval '10 minutes'",
+    )
+    .bind(user.id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if recent >= 10 {
+        return Err(AppError::RateLimited(
+            "challenge creation limit exceeded".into(),
+        ));
+    }
     sqlx::query(
-        "UPDATE rooms SET state = 'CANCELLED'
-         WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'",
+        "UPDATE challenges SET state = 'EXPIRED'
+         WHERE state = 'PENDING' AND expires_at <= now()",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "WITH cancelled AS (
+             UPDATE rooms SET state = 'CANCELLED'
+             WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'
+             RETURNING attempt_id
+         )
+         UPDATE match_attempts SET state = 'CANCELLED', finished_at = now()
+         WHERE attempt_id IN (SELECT attempt_id FROM cancelled) AND state = 'ACTIVE'",
     )
     .bind(user.id)
     .bind(&request.game_id)
     .execute(&mut *transaction)
     .await?;
     let room_id = Uuid::new_v4();
+    let attempt_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO rooms (id, game_id, host_user_id, state, max_players)
-         VALUES ($1, $2, $3, 'CHALLENGING', 2)",
+        "INSERT INTO rooms
+            (id, game_id, host_user_id, state, max_players, state_deadline_at, attempt_id)
+         VALUES ($1, $2, $3, 'CHALLENGING', 2, now() + interval '5 minutes', $4)",
     )
     .bind(room_id)
     .bind(&request.game_id)
     .bind(user.id)
+    .bind(attempt_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO match_attempts (attempt_id, room_id, state, deadline_at)
+         VALUES ($1, $2, 'ACTIVE', now() + interval '5 minutes')",
+    )
+    .bind(attempt_id)
+    .bind(room_id)
     .execute(&mut *transaction)
     .await?;
     sqlx::query("INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)")
@@ -114,16 +155,31 @@ pub async fn create_challenge(
         .execute(&mut *transaction)
         .await?;
     let row = sqlx::query(
-        "INSERT INTO challenges (room_id, challenger_id, challenged_id, state)
-         VALUES ($1, $2, $3, 'PENDING')
+        "INSERT INTO challenges
+            (room_id, challenger_id, challenged_id, state, expires_at)
+         VALUES ($1, $2, $3, 'PENDING', now() + interval '5 minutes')
+         ON CONFLICT (challenger_id, challenged_id) WHERE state = 'PENDING' DO NOTHING
          RETURNING id",
     )
     .bind(room_id)
     .bind(user.id)
     .bind(request.challenged_id)
-    .fetch_one(&mut *transaction)
+    .fetch_optional(&mut *transaction)
     .await?;
+    let row = row.ok_or_else(|| {
+        AppError::Conflict("an active challenge already exists for these users".into())
+    })?;
     let challenge_id: Uuid = row.try_get("id").map_err(invalid_record)?;
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         VALUES ($1, $2, $3, 'challenge.created', jsonb_build_object('challenge_id', $4))",
+    )
+    .bind(room_id)
+    .bind(attempt_id)
+    .bind(user.id)
+    .bind(challenge_id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
 
     let payload = json!({
@@ -147,10 +203,12 @@ pub async fn list_incoming(
 ) -> Result<Json<Envelope<Value>>, AppError> {
     let rows = sqlx::query(
         "SELECT challenges.id, challenges.room_id, rooms.game_id,
-                challenges.challenger_id, challenges.challenged_id, challenges.state
+                challenges.challenger_id, challenges.challenged_id, challenges.state,
+                challenges.expires_at, rooms.state AS room_state
          FROM challenges
          JOIN rooms ON rooms.id = challenges.room_id
          WHERE challenges.challenged_id = $1 AND challenges.state = 'PENDING'
+           AND challenges.expires_at > now()
          ORDER BY challenges.created_at DESC
          LIMIT 50",
     )
@@ -170,6 +228,8 @@ pub async fn list_incoming(
                     .try_get::<String, _>("state")
                     .map_err(invalid_record)?
                     .to_ascii_lowercase(),
+                expires_at: row.try_get("expires_at").map_err(invalid_record)?,
+                room_state: row.try_get("room_state").map_err(invalid_record)?,
             })
         })
         .collect::<Result<Vec<_>, AppError>>()?;
@@ -191,13 +251,40 @@ pub async fn accept_challenge(
             "only the challenged user can accept".into(),
         ));
     }
+    if challenge.state == "ACCEPTED" {
+        transaction.rollback().await?;
+        challenge.state = "accepted".into();
+        let payload = serde_json::to_value(&challenge)
+            .map_err(|_| AppError::Internal("failed to serialize challenge".into()))?;
+        return Ok(Json(Envelope::new("challenge.accepted", payload)));
+    }
     require_pending(&challenge)?;
+    let current =
+        crate::room_state::from_database(&challenge.room_state).map_err(AppError::Internal)?;
+    if current != RoomState::Challenging {
+        return Err(AppError::Conflict(
+            "challenge room is no longer active".into(),
+        ));
+    }
     sqlx::query(
-        "UPDATE rooms SET state = 'CANCELLED'
-         WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'",
+        "WITH cancelled AS (
+             UPDATE rooms SET state = 'CANCELLED'
+             WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'
+             RETURNING attempt_id
+         )
+         UPDATE match_attempts SET state = 'CANCELLED', finished_at = now()
+         WHERE attempt_id IN (SELECT attempt_id FROM cancelled) AND state = 'ACTIVE'",
     )
     .bind(user.id)
     .bind(&challenge.game_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE match_attempts
+         SET deadline_at = now() + interval '2 minutes'
+         WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)",
+    )
+    .bind(challenge.room_id)
     .execute(&mut *transaction)
     .await?;
     sqlx::query("INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)")
@@ -205,17 +292,30 @@ pub async fn accept_challenge(
         .bind(user.id)
         .execute(&mut *transaction)
         .await?;
-    let next = transition(opencade_protocol::RoomState::Challenging, RoomEvent::Accept)
+    let next = transition(current, RoomEvent::Accept)
         .map_err(|error| AppError::Conflict(error.to_string()))?;
-    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
-        .bind(challenge.room_id)
-        .bind(to_database(&next))
-        .execute(&mut *transaction)
-        .await?;
+    sqlx::query(
+        "UPDATE rooms SET state = $2, state_deadline_at = now() + interval '2 minutes'
+         WHERE id = $1",
+    )
+    .bind(challenge.room_id)
+    .bind(to_database(&next))
+    .execute(&mut *transaction)
+    .await?;
     sqlx::query("UPDATE challenges SET state = 'ACCEPTED' WHERE id = $1")
         .bind(id)
         .execute(&mut *transaction)
         .await?;
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         SELECT id, attempt_id, $2, 'challenge.accepted', jsonb_build_object('challenge_id', $3)
+         FROM rooms WHERE id = $1",
+    )
+    .bind(challenge.room_id)
+    .bind(user.id)
+    .bind(id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     challenge.state = "accepted".into();
     let payload = serde_json::to_value(&challenge)
@@ -267,10 +367,35 @@ async fn resolve_challenge(
         .bind(challenge_state)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("UPDATE rooms SET state = 'CANCELLED' WHERE id = $1")
+    sqlx::query("UPDATE rooms SET state = 'CANCELLED', state_deadline_at = NULL WHERE id = $1")
         .bind(challenge.room_id)
         .execute(&mut *transaction)
         .await?;
+    sqlx::query(
+        "UPDATE match_attempts
+         SET state = 'CANCELLED', finished_at = COALESCE(finished_at, now()),
+             deadline_at = NULL
+         WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
+           AND state = 'ACTIVE'",
+    )
+    .bind(challenge.room_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)
+         SELECT id, attempt_id, $2, $3, jsonb_build_object('challenge_id', $4)
+         FROM rooms WHERE id = $1",
+    )
+    .bind(challenge.room_id)
+    .bind(user.id)
+    .bind(if cancel {
+        "challenge.cancelled"
+    } else {
+        "challenge.declined"
+    })
+    .bind(id)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
 
     challenge.state = challenge_state.to_ascii_lowercase();
@@ -291,7 +416,7 @@ async fn resolve_challenge(
 }
 
 fn require_pending(challenge: &ChallengeView) -> Result<(), AppError> {
-    if challenge.state == "PENDING" {
+    if challenge.state == "PENDING" && challenge.expires_at > Utc::now() {
         Ok(())
     } else {
         Err(AppError::Conflict("challenge is no longer pending".into()))
@@ -311,6 +436,8 @@ mod tests {
             challenger_id: Uuid::nil(),
             challenged_id: Uuid::new_v4(),
             state: "DECLINED".into(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            room_state: "CHALLENGING".into(),
         };
         assert!(matches!(
             require_pending(&challenge),

@@ -1127,6 +1127,7 @@ dependencies = [
  "axum",
  "dashmap",
  "futures",
+ "opencade-networking",
  "opencade-protocol",
  "opencade-shared",
  "serde",
@@ -1148,6 +1149,7 @@ dependencies = [
  "dashmap",
  "futures-util",
  "hex",
+ "opencade-networking",
  "opencade-protocol",
  "opencade-shared",
  "rand_core 0.6.4",
@@ -1163,6 +1165,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -1175,6 +1178,7 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]

@@ -38,6 +38,18 @@ Updated 2026-08-25.
   safe host/guest argument construction, and SHA-256 executable/core/content fingerprints.
 - Server-derived one-use native launch grants, exactly-two-player rooms, a deterministic client
   match coordinator, supervised/reaped child processes, and launch/exit-backed room transitions.
+- One-use room invite codes, reconnect-safe revisioned room snapshots, fail-closed two-peer
+  compatibility preflights, and an idempotent synchronized launch barrier.
+- A community-alpha dashboard backed by authenticated, privacy-filtered, conflict-safe evidence
+  uploads and a bounded server-side campaign summary.
+- A reusable match-readiness gate that validates the desktop runtime, control plane, local game
+  runtime, native port, and advisory network fallback before a player enters a lobby.
+- Explicitly opt-in product telemetry for the game-selection-to-lobby activation funnel, with a
+  closed Rust/TypeScript event contract, anonymous tab sessions, idempotent ingestion, 90-day raw
+  retention, 30-day aggregates, and small-cohort blocker suppression.
+- A capability-scoped native TCP tunnel primitive with bounded binary frames and a real loopback
+  relay integration test. It is separately ticketed from readiness probes and remains disabled as
+  an automatic gameplay route pending physical two-host validation.
 - A truthful route gate: same-LAN host candidates may launch the RetroArch TCP alpha; UDP reflexive
   and relay results are readiness-only until a native transport bridge exists.
 - Strict playable-report verification that requires matching, well-formed native compatibility
@@ -65,3 +77,5 @@ Updated 2026-08-25.
 - Production installer packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.
+- Automatic selection of the native TCP tunnel as a gameplay route. ADR 0005 requires physical
+  two-host proof before enabling that fallback in the match coordinator.

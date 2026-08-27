@@ -38,6 +38,14 @@ export type RetroarchMatchLaunch = {
     content_sha256: string;
   };
 };
+export type RetroarchPreflight = {
+  adapter: "retroarch_fbneo";
+  emulator_version?: string | null;
+  executable_sha256: string;
+  core_sha256: string;
+  content_sha256: string;
+  native_port_available: boolean;
+};
 export type EmulatorExitEvent = {
   pid: number;
   room_id?: string | null;
@@ -45,6 +53,15 @@ export type EmulatorExitEvent = {
   success: boolean;
 };
 export type RuntimeConfig = { api_url: string; stun_server?: string | null };
+export type NativeTunnelStarted = { room_id: string; local_endpoint: string };
+export type NativeTunnelTicket = {
+  room_id: string;
+  user_id: string;
+  expires_at: number;
+  nonce: string;
+  capability: "native_tcp_tunnel";
+  signature: string;
+};
 
 let runtimeStunServer = import.meta.env.VITE_STUN_SERVER || undefined;
 
@@ -82,12 +99,15 @@ export async function stopGame(pid: number): Promise<void> {
 }
 
 export async function launchRetroarchMatch(request: {
-  api_url: string;
-  session_token: string;
   launch_grant: string;
 }): Promise<RetroarchMatchLaunch> {
   if (!isDesktopRuntime()) throw new Error("RetroArch netplay requires the desktop client");
   return invoke<RetroarchMatchLaunch>("launch_retroarch_match", { request });
+}
+
+export async function retroarchPreflight(gameId: string): Promise<RetroarchPreflight> {
+  if (!isDesktopRuntime()) throw new Error("RetroArch preflight requires the desktop client");
+  return invoke<RetroarchPreflight>("retroarch_preflight", { gameId });
 }
 
 export async function onEmulatorExit(
@@ -158,6 +178,7 @@ export async function runRelayMatchProbe(request: {
     room_id: string;
     user_id: string;
     expires_at: number;
+    nonce: string;
     signature: string;
   };
   room_id: string;
@@ -177,4 +198,19 @@ export async function runRelayMatchProbe(request: {
 export async function cancelMatchProbe(roomId: string): Promise<void> {
   if (!isDesktopRuntime()) return;
   await invoke("cancel_match_probe", { roomId });
+}
+
+export async function startNativeTcpTunnel(request: {
+  relay_url: string;
+  ticket: NativeTunnelTicket;
+  mode: "listen" | "connect";
+  local_endpoint: string;
+}): Promise<NativeTunnelStarted> {
+  if (!isDesktopRuntime()) throw new Error("Native TCP tunnel requires the desktop client");
+  return invoke<NativeTunnelStarted>("start_native_tcp_tunnel", { request });
+}
+
+export async function stopNativeTcpTunnel(roomId: string): Promise<void> {
+  if (!isDesktopRuntime()) return;
+  await invoke("stop_native_tcp_tunnel", { roomId });
 }

@@ -302,9 +302,11 @@ Consequences:
 - MVP has **three active containers**: `db` (`postgres:16-alpine`), `opencade-server` on `8080`,
   and `opencade-relay` on `8081`; peers still prefer direct UDP.
 - No Redis, no separate signaling service, and no message queue in MVP. Presence remains in the
-  control plane; bounded readiness frames alone can use the relay fallback.
-- The relay accepts only short-lived room-member tickets issued by the control plane, limits rooms
-  to two users and bounded frames, and does not relay RetroArch's native netplay socket.
+  control plane. Readiness frames use the probe capability; an isolated, bounded native TCP tunnel
+  capability exists but remains route-policy gated pending physical validation.
+- The relay accepts only short-lived room-member tickets issued by the control plane and limits
+  rooms to two users and bounded frames. Capability-scoped tickets keep readiness probes isolated
+  from the experimental native TCP tunnel described in ADR 0005.
 
 ---
 
@@ -445,14 +447,15 @@ WAITING|CHALLENGING ──(challenge accepted)──► CONNECTING
 CONNECTING ──(both authorized native processes launch)──► PLAYING
 PLAYING ──(both native processes exit)──────────────────► FINISHED
 CONNECTING ──(a launched process exits before peer)─────► CANCELLED
-*       ──(host cancels / timeout / all leave)──► CANCELLED
+*       ──(member cancels / deadline expires)──► CANCELLED
 ```
 
 States stored in `rooms.state` (`WAITING | READY | CHALLENGING | CONNECTING | PLAYING | FINISHED |
 CANCELLED`). Alpha rooms have exactly two members. Transitions are server-authoritative and backed by
-per-participant native launch/exit records; a successful UDP readiness probe never advances room
-state. Native launch descriptors are derived from short-lived, hashed, one-use server grants. See
-ADR 0004.
+per-attempt identity, state deadlines (including a 24-hour waiting-room lease), per-participant native launch/exit records, and an append-only
+room event journal. A database-backed reconciler expires stale challenges and active attempts safely
+across replicas using row locks. A successful UDP readiness probe never advances room state. Native
+launch descriptors are derived from short-lived, hashed, one-use server grants. See ADR 0004.
 
 Challenge flow: `challenge.create` → server creates `challenge` row (ephemeral, in `rooms` or separate `challenges` if needed) → pushes `challenge.create` to target → target `challenge.accept/decline` → on accept, server creates/moves to `room` and emits `room.state: READY`.
 
@@ -565,11 +568,24 @@ CREATE TABLE rooms (
   host_user_id  UUID NOT NULL REFERENCES users(id),
   state         TEXT NOT NULL CHECK (state IN ('WAITING','READY','PLAYING','FINISHED','CANCELLED')),
   max_players   INT  NOT NULL DEFAULT 2 CHECK (max_players BETWEEN 2 AND 4),
+  attempt_id    UUID NOT NULL,
+  state_deadline_at TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON rooms(game_id, state);
 CREATE INDEX ON rooms(host_user_id);
+
+-- match_attempts — authoritative outcome and timeout boundary
+CREATE TABLE match_attempts (
+  attempt_id    UUID PRIMARY KEY,
+  room_id       UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  state         TEXT NOT NULL CHECK (state IN ('ACTIVE','SUCCEEDED','FAILED','CANCELLED','EXPIRED')),
+  failure_code  TEXT,
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deadline_at   TIMESTAMPTZ,
+  finished_at   TIMESTAMPTZ
+);
 
 -- room_members — join table
 CREATE TABLE room_members (
@@ -657,8 +673,9 @@ fixes the connection to the signed room/user, permits at most two distinct users
 64-message queues, and rejects frames above 64 KiB. Text frames must be valid versioned envelopes
 whose payload room matches the signed room; bounded binary probe frames remain opaque.
 
-This relay carries OpenCade readiness frames. It is not TURN and does not relay RetroArch's native
-TCP netplay connection.
+Probe tickets carry only OpenCade readiness frames. Native-tunnel tickets use a separate signed
+capability and bounded TCP-over-WebSocket framing; the match coordinator does not select that route
+until ADR 0005's physical validation gate passes. The relay is not TURN.
 
 ### 10.4 Latency — RTT / loss / jitter
 
@@ -803,18 +820,16 @@ Cross-cutting utilities used by both Rust and TS:
 | **Process launch**    | No shell, allow-listed binary path, per-arg sanitization, ROM path canonicalization inside allowed dirs (see §11.2).                                                                                 |
 | **Tauri permissions** | No `shell` plugin, scoped `fs` (allow `emulator/**`, `config/**`, logs; deny rest), CSP, `withGlobalTauri: false`.                                                                                   |
 | **CORS**              | `Access-Control-Allow-Origin` limited to Tauri's custom protocol + `http://localhost:1420` in dev only.                                                                                              |
-| **Rate limiting**     | `tower::limit` on `/auth/*` (5/min/IP) and WS `signaling.*` (60/min/user) — in-memory in MVP, no Redis.                                                                                              |
-| **Secrets**           | `.env` never committed; `DATABASE_URL`, `JWT_SECRET` (if used for signing, not for sessions) loaded via `dotenvy`. CI uses GitHub secrets.                                                           |
+| **Rate limiting**     | Bounded in-memory limits protect auth, telemetry, WS messages, relay frames/bytes, and concurrent native probes.                                                                                     |
+| **Secrets**           | `.env` never committed. Session, relay, database, and operator credentials are independent; production config rejects weak or incomplete values.                                                     |
 
 ---
 
 ## 15. Observability
 
-Placeholder in MVP, real wiring without re-architecture.
-
-- **Logging**: `tracing` + `tracing-subscriber` (JSON in prod, pretty in dev). Every request logs `request_id`, `user_id`, `route`, `latency_ms`. Tauri side uses `tauri-plugin-log`.
-- **Metrics**: `prometheus` exporter at `GET /metrics` (behind admin auth) — counters `http_requests_total`, `ws_connections`, `rooms_created`, histogram `http_request_duration_seconds`.
-- **Tracing**: `tracing-opentelemetry` stub — exporter disabled in MVP, enabled by setting `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- **Logging**: `tracing` + `tracing-subscriber` (JSON in production, compact in development). Tauri side uses `tauri-plugin-log`; secrets and ROM paths are excluded.
+- **Metrics**: Prometheus text at `GET /metrics`, protected by `x-operator-token`, with request, status-class, cumulative latency, WebSocket, and room counters.
+- **Decision surfaces**: campaign and activation aggregates require both user authentication and the operator credential; raw user telemetry is never exposed by these routes.
 - **Health**: `GET /health` → `{ status:"ok", version, db:"up"|"down" }` (no auth, for Compose healthcheck).
 - All observability code is gated behind `observability/` module so it can be no-op in tests.
 
@@ -825,7 +840,7 @@ Placeholder in MVP, real wiring without re-architecture.
 ### 16.1 docker-compose.yml (root)
 
 Canonical compose is `docker-compose.yml` at repo root. Active services are PostgreSQL,
-`opencade-server` on `8080`, and the authenticated WebSocket readiness relay on `8081`. The server
+the one-shot `migrate` job, `opencade-server` on `8080`, and the authenticated WebSocket readiness relay on `8081`. The server
 and relay receive the same independently generated `RELAY_AUTH_SECRET`; it must differ from the
 session secret.
 
@@ -876,10 +891,11 @@ configured RFC 8489 service.
 
 ### 16.2 Dockerfiles
 
-- `apps/server/Dockerfile` — `rust:1.98-bookworm` builder → `debian:bookworm-slim` runtime, `sqlx migrate run` on start.
+- `apps/server/Dockerfile` — `rust:1.98-bookworm` builder → `debian:bookworm-slim` runtime. The same immutable image runs migrations as an explicit one-shot Compose job before server startup.
 - `services/relay/Dockerfile` — same pattern, binary `opencade-relay`.
 
-No `docker-compose.override.yml` in repo; devs create it locally if needed.
+No `docker-compose.override.yml` is committed; developers create it locally if needed. Backup,
+restore, rollback, and incident procedures live in `docs/operations/RUNBOOK.md`.
 
 ---
 

@@ -1,9 +1,17 @@
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { MatchEndpointPayload, MatchProbeCompletedPayload } from "@opencade/protocol";
 import { api } from "../lib/api";
-import { downloadAlphaFailureReport, downloadMatchReport } from "../lib/report";
+import {
+  buildAlphaFailureReport,
+  buildMatchReport,
+  compatibilityFromLaunch,
+  downloadAlphaFailureReport,
+  downloadMatchReport,
+} from "../lib/report";
 import { useLanMatchProbe } from "../lib/useLanMatchProbe";
 import { usePlayableMatch } from "../lib/usePlayableMatch";
+import { stopGame } from "../lib/native";
 import type { OpenCadeSocket } from "../lib/ws";
 
 export default function Match({
@@ -28,7 +36,6 @@ export default function Match({
   const room = useQuery({
     queryKey: ["room", roomId],
     queryFn: () => api.room(token, roomId),
-    refetchInterval: 2_000,
   });
   const { localEndpoint, probeReport, probeError, probeFailure, isResetting, retry } =
     useLanMatchProbe({
@@ -42,7 +49,16 @@ export default function Match({
       onRetry: onProbeRetry,
     });
   const state = room.data?.state ?? "connecting";
-  const { coordinator, participants, playableMatch, resetCoordinator } = usePlayableMatch({
+  const {
+    coordinator,
+    participants,
+    playableMatch,
+    snapshot,
+    preflightPending,
+    launchBarrierPending,
+    canLaunch,
+    resetCoordinator,
+  } = usePlayableMatch({
     token,
     userId,
     roomId,
@@ -52,6 +68,16 @@ export default function Match({
     probeReport,
     peerCompletion,
   });
+  const [now, setNow] = useState(Date.now());
+  const [isLeaving, setIsLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
+  const uploadedSuccess = useRef(false);
+  const uploadedFailure = useRef(false);
+  useEffect(() => {
+    if (!snapshot?.barrier.launch_at) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [snapshot?.barrier.launch_at]);
   const steps = ["connecting", "playing", "finished"];
   const active = Math.max(0, steps.indexOf(state));
   const heading =
@@ -79,6 +105,30 @@ export default function Match({
           transport: probeReport?.transport,
         }
       : probeFailure;
+  useEffect(() => {
+    if (!completedRoom || !probeReport || !playableMatch.data || uploadedSuccess.current) return;
+    uploadedSuccess.current = true;
+    const report = buildMatchReport(
+      completedRoom,
+      probeReport,
+      new Date(),
+      compatibilityFromLaunch(playableMatch.data)
+    );
+    void api.submitEvidence(token, report).catch(() => {
+      uploadedSuccess.current = false;
+    });
+  }, [completedRoom, playableMatch.data, probeReport, token]);
+  useEffect(() => {
+    if (!failureRoom || !participants || !failureEvidence || uploadedFailure.current) return;
+    uploadedFailure.current = true;
+    const report = buildAlphaFailureReport(failureRoom, participants.role, failureEvidence);
+    void api.submitEvidence(token, report).catch(() => {
+      uploadedFailure.current = false;
+    });
+  }, [failureEvidence, failureRoom, participants, token]);
+  const launchSeconds = snapshot?.barrier.launch_at
+    ? Math.max(0, Math.ceil((new Date(snapshot.barrier.launch_at).getTime() - now) / 1000))
+    : undefined;
   return (
     <section className="match-stage">
       <p className="eyebrow">Room {roomId.slice(0, 8)}</p>
@@ -107,6 +157,19 @@ export default function Match({
           {probeReport.transcript_checksum}
         </p>
       )}
+      {coordinator.phase === "ready" && (
+        <p className="status-copy" role="status">
+          {preflightPending
+            ? "Checking RetroArch, core, content, and TCP port…"
+            : !snapshot?.compatibility_matched
+              ? `Waiting for matching peer preflight (${snapshot?.preflight_count ?? 0}/2)`
+              : launchBarrierPending || snapshot.barrier.ready_count < 2
+                ? `Compatibility matched · launch ready ${snapshot.barrier.ready_count}/2`
+                : launchSeconds && launchSeconds > 0
+                  ? `Synchronized launch opens in ${launchSeconds}s`
+                  : "Compatibility and synchronized launch barrier verified"}
+        </p>
+      )}
       {coordinator.phase === "relay_probe_only" && (
         <p className="status-copy" role="status">
           The readiness probe passed, but this UDP route is not a usable RetroArch TCP route. Native
@@ -133,6 +196,11 @@ export default function Match({
           {playableMatch.error.message}
         </p>
       )}
+      {leaveError && (
+        <p className="form-error" role="alert">
+          {leaveError}
+        </p>
+      )}
       {playableMatch.data && (
         <p className="status-copy" role="status">
           RetroArch netplay launched · PID {playableMatch.data.pid} · content{" "}
@@ -156,6 +224,22 @@ export default function Match({
                 : "Retry LAN probe"}
           </button>
         )}
+        {room.isError && (
+          <button className="secondary" onClick={() => void room.refetch()}>
+            Retry room status
+          </button>
+        )}
+        {(playableMatch.isError || coordinator.phase === "failed") && (
+          <button
+            className="secondary"
+            onClick={() => {
+              playableMatch.reset();
+              resetCoordinator();
+            }}
+          >
+            Retry match setup
+          </button>
+        )}
         {completedRoom && probeReport && (
           <button
             className="secondary"
@@ -177,14 +261,58 @@ export default function Match({
         {coordinator.phase === "ready" && participants && !playableMatch.data && (
           <button
             className="primary"
-            disabled={playableMatch.isPending}
+            disabled={playableMatch.isPending || !canLaunch}
             onClick={() => playableMatch.mutate()}
           >
             {playableMatch.isPending ? "Launching RetroArch…" : "Launch playable alpha"}
           </button>
         )}
-        <button className="secondary" onClick={onDone}>
-          Return to games
+        <button
+          className="secondary"
+          disabled={isLeaving}
+          onClick={() => {
+            if (
+              room.data?.state !== "finished" &&
+              !window.confirm("Leave this match and stop its native session?")
+            ) {
+              return;
+            }
+            setIsLeaving(true);
+            setLeaveError("");
+            void (async () => {
+              try {
+                let stopError: unknown;
+                if (playableMatch.data?.pid) {
+                  try {
+                    await stopGame(playableMatch.data.pid);
+                  } catch (error) {
+                    stopError = error;
+                  }
+                }
+                if (
+                  room.data &&
+                  room.data.state !== "finished" &&
+                  room.data.state !== "cancelled"
+                ) {
+                  await api.cancelRoom(token, roomId);
+                }
+                if (stopError) throw stopError;
+                onDone();
+              } catch (error) {
+                setLeaveError(
+                  error instanceof Error ? error.message : "Match could not be left safely"
+                );
+              } finally {
+                setIsLeaving(false);
+              }
+            })();
+          }}
+        >
+          {isLeaving
+            ? "Leaving match…"
+            : room.data?.state === "finished"
+              ? "Return to games"
+              : "Leave match"}
         </button>
       </div>
     </section>

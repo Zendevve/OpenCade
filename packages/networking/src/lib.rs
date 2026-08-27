@@ -9,6 +9,7 @@ mod probe;
 mod relay;
 mod report;
 mod stun;
+mod tcp_tunnel;
 mod traversal;
 
 pub use latency::LatencyMetrics;
@@ -27,6 +28,7 @@ pub use report::{
     verify_playable_match_reports,
 };
 pub use stun::{NatMapping, StunObservation, discover_reflexive_address};
+pub use tcp_tunnel::{NATIVE_TUNNEL_FRAME_BYTES, run_native_tcp_tunnel};
 pub use traversal::{HolePunchConfig, HolePunchReport, punch_hole};
 pub const MAX_INPUT_BYTES: usize = 256;
 pub const INPUT_QUEUE_CAPACITY: usize = 120;

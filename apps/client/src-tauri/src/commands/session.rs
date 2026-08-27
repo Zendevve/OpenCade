@@ -33,6 +33,10 @@ pub fn load_session_token() -> Result<Option<String>, String> {
     }
 }
 
+pub(crate) fn require_session_token() -> Result<String, String> {
+    load_session_token()?.ok_or_else(|| "an authenticated desktop session is required".into())
+}
+
 #[tauri::command]
 pub fn clear_session_token() -> Result<(), String> {
     match entry()?.delete_credential() {

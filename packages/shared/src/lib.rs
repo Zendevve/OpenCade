@@ -1,14 +1,33 @@
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use uuid::Uuid;
 
 pub const MAX_RELAY_TICKET_LIFETIME_SECONDS: i64 = 300;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayCapability {
+    Probe,
+    NativeTcpTunnel,
+}
+
+impl RelayCapability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Probe => "probe",
+            Self::NativeTcpTunnel => "native_tcp_tunnel",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelayTicket {
     pub room_id: String,
     pub user_id: String,
     pub expires_at: i64,
+    pub capability: RelayCapability,
+    pub nonce: Uuid,
     pub signature: String,
 }
 
@@ -33,12 +52,25 @@ impl RelayTicket {
         user_id: &str,
         expires_at: i64,
     ) -> Result<Self, RelayTicketError> {
+        Self::issue_scoped(secret, room_id, user_id, expires_at, RelayCapability::Probe)
+    }
+
+    pub fn issue_scoped(
+        secret: &[u8],
+        room_id: &str,
+        user_id: &str,
+        expires_at: i64,
+        capability: RelayCapability,
+    ) -> Result<Self, RelayTicketError> {
         validate_inputs(secret, room_id, user_id)?;
-        let signature = signature(secret, room_id, user_id, expires_at)?;
+        let nonce = Uuid::new_v4();
+        let signature = signature(secret, room_id, user_id, expires_at, capability, nonce)?;
         Ok(Self {
             room_id: room_id.to_owned(),
             user_id: user_id.to_owned(),
             expires_at,
+            capability,
+            nonce,
             signature: hex::encode(signature),
         })
     }
@@ -58,6 +90,8 @@ impl RelayTicket {
             &self.room_id,
             &self.user_id,
             self.expires_at,
+            self.capability,
+            self.nonce,
         ));
         mac.verify_slice(&provided)
             .map_err(|_| RelayTicketError::InvalidSignature)
@@ -83,17 +117,28 @@ fn signature(
     room_id: &str,
     user_id: &str,
     expires_at: i64,
+    capability: RelayCapability,
+    nonce: Uuid,
 ) -> Result<Vec<u8>, RelayTicketError> {
     let mut mac = relay_mac(secret)?;
-    mac.update(&canonical_claims(room_id, user_id, expires_at));
+    mac.update(&canonical_claims(
+        room_id, user_id, expires_at, capability, nonce,
+    ));
     Ok(mac.finalize().into_bytes().to_vec())
 }
 
-fn canonical_claims(room_id: &str, user_id: &str, expires_at: i64) -> Vec<u8> {
+fn canonical_claims(
+    room_id: &str,
+    user_id: &str,
+    expires_at: i64,
+    capability: RelayCapability,
+    nonce: Uuid,
+) -> Vec<u8> {
     format!(
-        "{}:{room_id}:{}:{user_id}:{expires_at}",
+        "{}:{room_id}:{}:{user_id}:{expires_at}:{}:{nonce}",
         room_id.len(),
-        user_id.len()
+        user_id.len(),
+        capability.as_str()
     )
     .into_bytes()
 }
@@ -126,6 +171,24 @@ mod tests {
         assert_eq!(
             ticket.verify(SECRET, 1_000),
             Err(RelayTicketError::ExcessiveLifetime)
+        );
+    }
+
+    #[test]
+    fn capability_is_cryptographically_scoped() {
+        let mut ticket = RelayTicket::issue_scoped(
+            SECRET,
+            "room",
+            "user",
+            1_120,
+            RelayCapability::NativeTcpTunnel,
+        )
+        .expect("ticket");
+        assert_eq!(ticket.verify(SECRET, 1_000), Ok(()));
+        ticket.capability = RelayCapability::Probe;
+        assert_eq!(
+            ticket.verify(SECRET, 1_000),
+            Err(RelayTicketError::InvalidSignature)
         );
     }
 }

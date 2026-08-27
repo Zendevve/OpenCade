@@ -40,7 +40,7 @@ curl http://localhost:8080/health
 docker compose logs -f opencade-server
 ```
 
-This starts `opencade-server`, PostgreSQL, and the authenticated readiness-probe relay. The server applies committed SQLx migrations before it begins serving.
+This starts PostgreSQL, runs committed SQLx migrations as a one-shot job, then starts `opencade-server` and the authenticated readiness-probe relay. See [the production runbook](docs/operations/RUNBOOK.md) for backup, restore, deployment, and rollback procedures.
 
 ```bash
 # stop

@@ -20,9 +20,41 @@ async fn request(
     token: Option<&str>,
     body: Option<Value>,
 ) -> (StatusCode, Envelope<Value>) {
+    request_with_operator_token(app, method, uri, token, body, None).await
+}
+
+async fn operator_request(
+    app: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Envelope<Value>) {
+    request_with_operator_token(
+        app,
+        method,
+        uri,
+        token,
+        body,
+        Some("test-operator-token-with-32-characters"),
+    )
+    .await
+}
+
+async fn request_with_operator_token(
+    app: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+    operator_token: Option<&str>,
+) -> (StatusCode, Envelope<Value>) {
     let mut builder = Request::builder().method(method).uri(uri);
     if let Some(token) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if let Some(operator_token) = operator_token {
+        builder = builder.header("x-operator-token", operator_token);
     }
     let request_body = match body {
         Some(value) => {
@@ -71,6 +103,21 @@ async fn current_user_id(app: &Router, token: &str) -> String {
         .as_str()
         .expect("current user id")
         .to_string()
+}
+
+fn telemetry_event(
+    event_id: uuid::Uuid,
+    session_id: uuid::Uuid,
+    event: &str,
+    blocked_checks: &[&str],
+) -> Value {
+    json!({
+        "event_id": event_id,
+        "anonymous_session_id": session_id,
+        "event": event,
+        "game_id": "sfiii3",
+        "blocked_checks": blocked_checks
+    })
 }
 
 #[sqlx::test]
@@ -170,6 +217,16 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     assert_eq!(accept_status, StatusCode::OK);
     assert_eq!(accepted.payload["state"], "accepted");
     let room_id = accepted.payload["room_id"].as_str().expect("room id");
+    let (repeat_accept_status, repeat_accept) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/challenges/{challenge_id}/accept"),
+        Some(&guest_token),
+        None,
+    )
+    .await;
+    assert_eq!(repeat_accept_status, StatusCode::OK);
+    assert_eq!(repeat_accept.payload["room_id"], room_id);
 
     let (room_status, room) = request(
         &app,
@@ -474,6 +531,247 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn expired_attempts_are_reconciled_authoritatively(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let state = AppState::new(pool.clone(), Config::for_test());
+    let app = build_app(state.clone());
+    let token = register(&app, "deadline_host").await;
+    let (status, room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&token),
+        Some(json!({ "game_id": "sfiii3" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let room_id = room.payload["id"].as_str().expect("room id");
+    sqlx::query(
+        "UPDATE rooms
+         SET state = 'CONNECTING', state_deadline_at = now() - interval '1 second'
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(room_id).expect("room uuid"))
+    .execute(&pool)
+    .await
+    .expect("expire room");
+
+    assert_eq!(
+        opencade_server::lifecycle::reconcile_expired(&state)
+            .await
+            .expect("reconcile"),
+        1
+    );
+    let outcome = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT rooms.state, match_attempts.state, match_attempts.failure_code
+         FROM rooms JOIN match_attempts USING (attempt_id) WHERE rooms.id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(room_id).expect("room uuid"))
+    .fetch_one(&pool)
+    .await
+    .expect("attempt outcome");
+    assert_eq!(outcome.0, "CANCELLED");
+    assert_eq!(outcome.1, "EXPIRED");
+    assert_eq!(outcome.2.as_deref(), Some("state_deadline_exceeded"));
+}
+
+#[sqlx::test]
+async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let mut config = Config::for_test();
+    config.relay_url = Some("wss://relay.example/relay".into());
+    config.relay_secret = Some("integration-relay-secret-at-least-32-bytes".into());
+    let app = build_app(AppState::new(pool, config));
+    let host_token = register(&app, "campaign_host").await;
+    let guest_token = register(&app, "campaign_guest").await;
+    let observer_token = register(&app, "campaign_observer").await;
+
+    let (_, room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&host_token),
+        Some(json!({ "game_id": "sfiii3" })),
+    )
+    .await;
+    let room_id = room.payload["id"].as_str().expect("room id");
+    let (invite_status, invite) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/invite"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(invite_status, StatusCode::CREATED);
+    let code = invite.payload["code"].as_str().expect("invite code");
+    assert_eq!(code.len(), 10);
+    let (join_status, joined) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&guest_token),
+        Some(json!({ "code": code.to_ascii_lowercase() })),
+    )
+    .await;
+    assert_eq!(join_status, StatusCode::OK);
+    assert_eq!(joined.payload["state"], "connecting");
+    let (replay_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&observer_token),
+        Some(json!({ "code": code })),
+    )
+    .await;
+    assert_eq!(replay_status, StatusCode::NOT_FOUND);
+
+    let compatibility = json!({
+        "adapter": "retroarch_fbneo",
+        "emulator_version": "1.22.0",
+        "executable_sha256": "a".repeat(64),
+        "core_sha256": "b".repeat(64),
+        "content_sha256": "c".repeat(64)
+    });
+    for token in [&host_token, &guest_token] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            &format!("/api/v1/rooms/{room_id}/preflight"),
+            Some(token),
+            Some(json!({
+                "room_id": room_id,
+                "compatibility": compatibility,
+                "native_port_available": true
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    for token in [&host_token, &guest_token] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            &format!("/api/v1/rooms/{room_id}/ready"),
+            Some(token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (snapshot_status, snapshot) = request(
+        &app,
+        Method::GET,
+        &format!("/api/v1/rooms/{room_id}/snapshot"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(snapshot_status, StatusCode::OK);
+    assert_eq!(snapshot.payload["preflight_count"], 2);
+    assert_eq!(snapshot.payload["compatibility_matched"], true);
+    assert_eq!(snapshot.payload["barrier"]["ready_count"], 2);
+    assert!(snapshot.payload["barrier"]["launch_at"].is_string());
+    let launch_at = snapshot.payload["barrier"]["launch_at"].clone();
+    let (duplicate_ready_status, duplicate_ready) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/ready"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(duplicate_ready_status, StatusCode::OK);
+    assert_eq!(duplicate_ready.payload["barrier"]["launch_at"], launch_at);
+
+    let (tunnel_status, tunnel) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/native-tunnel-ticket"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(tunnel_status, StatusCode::OK);
+    assert_eq!(tunnel.payload["ticket"]["capability"], "native_tcp_tunnel");
+
+    let failure = json!({
+        "schema_version": 1,
+        "kind": "attempt_failure",
+        "exported_at": chrono::Utc::now(),
+        "room": { "id": room_id, "game_id": "sfiii3", "state": "connecting" },
+        "role": "host",
+        "stage": "direct_udp",
+        "error_code": "direct_udp_timeout",
+        "transport": "direct_udp",
+        "client": { "platform": "macos", "user_agent": "integration-test" }
+    });
+    let (evidence_status, evidence) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": failure.clone() })),
+    )
+    .await;
+    assert_eq!(evidence_status, StatusCode::CREATED);
+    assert_eq!(evidence.payload["duplicate"], false);
+    let (duplicate_status, duplicate) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": failure.clone() })),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::OK);
+    assert_eq!(duplicate.payload["duplicate"], true);
+    let mut conflicting_failure = failure;
+    conflicting_failure["error_code"] = json!("different_failure");
+    let (conflict_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({ "evidence": conflicting_failure })),
+    )
+    .await;
+    assert_eq!(conflict_status, StatusCode::CONFLICT);
+
+    let (privacy_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/alpha/evidence",
+        Some(&host_token),
+        Some(json!({
+            "evidence": {
+                "kind": "attempt_failure",
+                "endpoint": "192.168.1.20:55435"
+            }
+        })),
+    )
+    .await;
+    assert_eq!(privacy_status, StatusCode::BAD_REQUEST);
+    let (campaign_status, campaign) = operator_request(
+        &app,
+        Method::GET,
+        "/api/v1/alpha/campaign",
+        Some(&host_token),
+        None,
+    )
+    .await;
+    assert_eq!(campaign_status, StatusCode::OK);
+    assert_eq!(campaign.payload["attempts"], 1);
+    assert_eq!(campaign.payload["failed"], 1);
+}
+
+#[sqlx::test]
 async fn logout_revokes_the_current_session(pool: PgPool) {
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -496,4 +794,199 @@ async fn logout_revokes_the_current_session(pool: PgPool) {
         request(&app, Method::GET, "/api/v1/games", Some(&token), None).await;
     assert_eq!(games_status, StatusCode::UNAUTHORIZED);
     assert_eq!(response.payload["code"], "unauthorized");
+}
+
+#[sqlx::test]
+async fn product_telemetry_is_private_idempotent_bounded_and_aggregated(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let app = build_app(AppState::new(pool.clone(), Config::for_test()));
+    let token = register(&app, "telemetry_player").await;
+    let session_id = uuid::Uuid::new_v4();
+    let selected_id = uuid::Uuid::new_v4();
+
+    let (unauthorized, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        None,
+        Some(telemetry_event(
+            selected_id,
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(unauthorized, StatusCode::UNAUTHORIZED);
+
+    for (event_id, event) in [
+        (selected_id, "game_selected"),
+        (uuid::Uuid::new_v4(), "readiness_completed"),
+        (uuid::Uuid::new_v4(), "lobby_entered"),
+    ] {
+        let (status, accepted) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(telemetry_event(event_id, session_id, event, &[])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(accepted.payload["duplicate"], false);
+    }
+    for _ in 0..2 {
+        let additional_session = uuid::Uuid::new_v4();
+        for event in ["game_selected", "readiness_completed", "lobby_entered"] {
+            let (status, _) = request(
+                &app,
+                Method::POST,
+                "/api/v1/telemetry/events",
+                Some(&token),
+                Some(telemetry_event(
+                    uuid::Uuid::new_v4(),
+                    additional_session,
+                    event,
+                    &[],
+                )),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+    }
+    let (duplicate_status, duplicate) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        Some(&token),
+        Some(telemetry_event(
+            selected_id,
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(duplicate_status, StatusCode::OK);
+    assert_eq!(duplicate.payload["duplicate"], true);
+
+    for invalid in [
+        json!({
+            "event_id": "not-a-uuid",
+            "anonymous_session_id": session_id,
+            "event": "game_selected",
+            "game_id": "sfiii3",
+            "blocked_checks": []
+        }),
+        telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "readiness_completed",
+            &["desktop"],
+        ),
+        telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "readiness_blocked",
+            &["network"],
+        ),
+    ] {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(invalid),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    for _ in 0..3 {
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            "/api/v1/telemetry/events",
+            Some(&token),
+            Some(telemetry_event(
+                uuid::Uuid::new_v4(),
+                session_id,
+                "readiness_blocked",
+                &["game_runtime"],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let expired_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO product_events
+            (event_id, anonymous_session_id, event_name, game_id, received_at)
+         VALUES ($1, $2, 'game_selected', 'sfiii3', now() - interval '91 days')",
+    )
+    .bind(expired_id)
+    .bind(uuid::Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("insert expired telemetry fixture");
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/telemetry/events",
+        Some(&token),
+        Some(telemetry_event(
+            uuid::Uuid::new_v4(),
+            session_id,
+            "game_selected",
+            &[],
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM product_events WHERE event_id = $1")
+            .bind(expired_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count expired event"),
+        0
+    );
+
+    let (summary_status, summary) = operator_request(
+        &app,
+        Method::GET,
+        "/api/v1/telemetry/activation",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(summary_status, StatusCode::OK);
+    assert_eq!(summary.payload["window_days"], 30);
+    assert_eq!(summary.payload["selected_sessions"], 3);
+    assert_eq!(summary.payload["ready_sessions"], 3);
+    assert_eq!(summary.payload["lobby_sessions"], 3);
+    assert_eq!(summary.payload["launch_attempted_sessions"], 0);
+    assert_eq!(summary.payload["launch_succeeded_sessions"], 0);
+    assert_eq!(summary.payload["readiness_blocked_events"], 3);
+    assert_eq!(summary.payload["selected_to_ready_rate"], 1.0);
+    assert_eq!(summary.payload["selected_to_lobby_rate"], 1.0);
+    assert_eq!(summary.payload["selected_to_launch_rate"], 0.0);
+    assert_eq!(
+        summary.payload["blocked_by_check"][0]["check"],
+        "game_runtime"
+    );
+    assert_eq!(summary.payload["blocked_by_check"][0]["count"], 3);
+
+    let stored_columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'product_events' ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("inspect telemetry schema");
+    assert!(!stored_columns.iter().any(|column| column == "user_id"));
 }

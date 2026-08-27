@@ -7,6 +7,11 @@ import type { MatchProbeCompletedPayload } from "./generated/MatchProbeCompleted
 import type { MatchReport } from "./generated/MatchReport.js";
 import type { MatchReportClient } from "./generated/MatchReportClient.js";
 import type { MatchReportCompatibility } from "./generated/MatchReportCompatibility.js";
+import type { MatchPreflightPayload } from "./generated/MatchPreflightPayload.js";
+import type { LaunchBarrierPayload } from "./generated/LaunchBarrierPayload.js";
+import type { NativeRouteCapability } from "./generated/NativeRouteCapability.js";
+import type { RoomInvitePayload } from "./generated/RoomInvitePayload.js";
+import type { RoomSnapshotPayload } from "./generated/RoomSnapshotPayload.js";
 import type { AlphaEvidenceKind } from "./generated/AlphaEvidenceKind.js";
 import type { AlphaFailureReport } from "./generated/AlphaFailureReport.js";
 import type { AlphaFailureStage } from "./generated/AlphaFailureStage.js";
@@ -17,6 +22,11 @@ import type { RoomPayload } from "./generated/RoomPayload.js";
 import type { SessionAnswerPayload } from "./generated/SessionAnswerPayload.js";
 import type { SessionCandidatePayload } from "./generated/SessionCandidatePayload.js";
 import type { SessionOfferPayload } from "./generated/SessionOfferPayload.js";
+import type { ActivationSummaryPayload } from "./generated/ActivationSummaryPayload.js";
+import type { ProductEventName } from "./generated/ProductEventName.js";
+import type { ProductEventPayload } from "./generated/ProductEventPayload.js";
+import type { ReadinessBlockCount } from "./generated/ReadinessBlockCount.js";
+import type { ReadinessCheckId } from "./generated/ReadinessCheckId.js";
 
 export type {
   ChallengePayload,
@@ -28,6 +38,11 @@ export type {
   MatchReport,
   MatchReportClient,
   MatchReportCompatibility,
+  MatchPreflightPayload,
+  LaunchBarrierPayload,
+  NativeRouteCapability,
+  RoomInvitePayload,
+  RoomSnapshotPayload,
   AlphaEvidenceKind,
   AlphaFailureReport,
   AlphaFailureStage,
@@ -38,6 +53,11 @@ export type {
   SessionAnswerPayload,
   SessionCandidatePayload,
   SessionOfferPayload,
+  ActivationSummaryPayload,
+  ProductEventName,
+  ProductEventPayload,
+  ReadinessBlockCount,
+  ReadinessCheckId,
 };
 export type { ChallengeState } from "./generated/ChallengeState.js";
 export type { RoomState } from "./generated/RoomState.js";
@@ -71,6 +91,7 @@ export type EnvelopeType =
   | "match.probe.completed"
   | "match.probe.completed.relayed"
   | "room.state"
+  | "room.snapshot"
   | "connection.hello"
   | "error"
   | "ping"
@@ -93,6 +114,7 @@ const KNOWN_ENVELOPE_TYPES: ReadonlySet<string> = new Set<EnvelopeType>([
   "match.probe.completed",
   "match.probe.completed.relayed",
   "room.state",
+  "room.snapshot",
   "connection.hello",
   "error",
   "ping",

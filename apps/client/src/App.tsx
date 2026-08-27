@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Envelope,
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
+  RoomPayload,
+  RoomSnapshotPayload,
 } from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
 import { ApiError, api, configureApiBase } from "./lib/api";
 import { parseMatchCompletion, parseMatchEndpoint } from "./lib/match";
 import { cancelMatchProbe, loadRuntimeConfig } from "./lib/native";
 import { useSessionStore } from "./lib/store";
+import { newestSnapshot } from "./lib/snapshot";
 import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
 import Games from "./routes/Games";
@@ -20,7 +23,8 @@ type View =
   { name: "games" } | { name: "lobby"; gameId: string } | { name: "match"; roomId: string };
 
 export default function App() {
-  const { token, user, hydrated, hydrate, setSession, clearSession } = useSessionStore();
+  const { token, user, hydrated, activeRoomId, hydrate, setSession, clearSession, setActiveRoom } =
+    useSessionStore();
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>({ name: "games" });
   const [connection, setConnection] = useState<ConnectionState>("idle");
@@ -29,10 +33,18 @@ export default function App() {
   const [peerCompletion, setPeerCompletion] = useState<MatchProbeCompletedPayload | null>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const activeRoom = useRef<string | null>(null);
+  activeRoom.current = view.name === "match" ? view.roomId : null;
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (hydrated && activeRoomId && view.name === "games") {
+      setView({ name: "match", roomId: activeRoomId });
+    }
+  }, [activeRoomId, hydrated, view.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,12 +82,19 @@ export default function App() {
     const socket = new OpenCadeSocket(apiUrl, token, setConnection);
     setActiveSocket(socket);
     const unsubscribe = socket.subscribe((message: Envelope<unknown>) => {
+      if (message.type === "connection.hello" && activeRoom.current) {
+        void queryClient.invalidateQueries({ queryKey: ["room", activeRoom.current] });
+        void queryClient.invalidateQueries({ queryKey: ["room-snapshot", activeRoom.current] });
+      }
       if (message.type.startsWith("challenge.")) {
         void queryClient.invalidateQueries({ queryKey: ["challenges"] });
       }
       if (message.type === "challenge.accepted") {
         const roomId = roomIdFromPayload(message.payload);
-        if (roomId) setView({ name: "match", roomId });
+        if (roomId) {
+          setActiveRoom(roomId);
+          setView({ name: "match", roomId });
+        }
       }
       if (message.type === "match.endpoint") {
         const endpoint = parseMatchEndpoint(message.payload);
@@ -87,6 +106,17 @@ export default function App() {
         const completion = parseMatchCompletion(message.payload);
         if (completion) setPeerCompletion(completion);
       }
+      if (message.type === "room.state" && isRoomPayload(message.payload)) {
+        queryClient.setQueryData(["room", message.payload.id], message.payload);
+      }
+      if (message.type === "room.snapshot" && isRoomSnapshot(message.payload)) {
+        const snapshot = message.payload;
+        queryClient.setQueryData<RoomSnapshotPayload>(
+          ["room-snapshot", snapshot.room.id],
+          (current) => newestSnapshot(current, snapshot)
+        );
+        queryClient.setQueryData(["room", snapshot.room.id], snapshot.room);
+      }
     });
     socket.connect();
     return () => {
@@ -94,7 +124,7 @@ export default function App() {
       socket.close();
       setActiveSocket((current) => (current === socket ? null : current));
     };
-  }, [apiUrl, token, queryClient]);
+  }, [apiUrl, token, queryClient, setActiveRoom]);
 
   if (runtimeError) {
     return (
@@ -121,7 +151,10 @@ export default function App() {
   }
   const logout = async () => {
     try {
-      if (view.name === "match") await cancelMatchProbe(view.roomId);
+      if (view.name === "match") {
+        await cancelMatchProbe(view.roomId);
+        await api.cancelRoom(token, view.roomId).catch(() => undefined);
+      }
       await api.logout(token);
     } finally {
       clearSession();
@@ -131,12 +164,20 @@ export default function App() {
     if (view.name === "match") void cancelMatchProbe(view.roomId);
     setPeerEndpoint(null);
     setPeerCompletion(null);
+    setActiveRoom(null);
     setView({ name: "games" });
   };
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={returnToGames} aria-label="OpenCade games">
+        <button
+          className="brand"
+          disabled={view.name === "match"}
+          onClick={returnToGames}
+          aria-label={
+            view.name === "match" ? "Leave the match before returning to games" : "OpenCade games"
+          }
+        >
           <span className="brand-glyph">OF</span>
           <span>OpenCade</span>
         </button>
@@ -144,7 +185,12 @@ export default function App() {
           <span className={`connection ${connection}`}>{connection}</span>
           <DiagnosticsButton />
           <span className="username">{user.username}</span>
-          <button className="text-button" onClick={() => void logout()}>
+          <button
+            className="text-button"
+            disabled={view.name === "match"}
+            title={view.name === "match" ? "Leave the match before signing out" : undefined}
+            onClick={() => void logout()}
+          >
             Sign out
           </button>
         </div>
@@ -159,7 +205,10 @@ export default function App() {
             userId={user.id}
             gameId={view.gameId}
             onBack={() => setView({ name: "games" })}
-            onMatch={(roomId) => setView({ name: "match", roomId })}
+            onMatch={(roomId) => {
+              setActiveRoom(roomId);
+              setView({ name: "match", roomId });
+            }}
           />
         )}
         {view.name === "match" && (
@@ -179,6 +228,50 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function isRoomPayload(payload: unknown): payload is RoomPayload {
+  const states = new Set([
+    "waiting",
+    "ready",
+    "challenging",
+    "connecting",
+    "playing",
+    "finished",
+    "cancelled",
+  ]);
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof Reflect.get(payload, "id") === "string" &&
+    typeof Reflect.get(payload, "game_id") === "string" &&
+    typeof Reflect.get(payload, "host_id") === "string" &&
+    (Reflect.get(payload, "guest_id") === null ||
+      typeof Reflect.get(payload, "guest_id") === "string") &&
+    states.has(String(Reflect.get(payload, "state")))
+  );
+}
+
+function isRoomSnapshot(payload: unknown): payload is RoomSnapshotPayload {
+  const barrier =
+    typeof payload === "object" && payload !== null ? Reflect.get(payload, "barrier") : null;
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    isRoomPayload(Reflect.get(payload, "room")) &&
+    Number.isSafeInteger(Reflect.get(payload, "revision")) &&
+    Number.isSafeInteger(Reflect.get(payload, "preflight_count")) &&
+    typeof Reflect.get(payload, "compatibility_matched") === "boolean" &&
+    typeof barrier === "object" &&
+    barrier !== null &&
+    typeof Reflect.get(barrier, "room_id") === "string" &&
+    Number.isSafeInteger(Reflect.get(barrier, "ready_count")) &&
+    Number.isSafeInteger(Reflect.get(barrier, "required_count")) &&
+    (Reflect.get(barrier, "launch_at") === null ||
+      (typeof Reflect.get(barrier, "launch_at") === "string" &&
+        !Number.isNaN(Date.parse(String(Reflect.get(barrier, "launch_at")))))) &&
+    ["direct_lan", "tcp_tunnel"].includes(String(Reflect.get(payload, "route")))
   );
 }
 

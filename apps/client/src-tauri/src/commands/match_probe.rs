@@ -14,6 +14,9 @@ use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
 const MAX_ACTIVE_PROBES: usize = 8;
+const MIN_PROBE_TIMEOUT_MS: u64 = 500;
+const MAX_PROBE_TIMEOUT_MS: u64 = 15_000;
+const MAX_PROBE_FRAMES: u64 = 600;
 
 #[derive(Default)]
 pub struct MatchProbeState {
@@ -166,6 +169,7 @@ pub async fn run_reserved_match_probe(
     request: RunMatchProbeRequest,
 ) -> Result<MatchProbeReport, String> {
     validate_room_id(&request.room_id)?;
+    validate_probe_limits(request.frame_count, request.timeout_ms)?;
     let room_id = request.room_id.clone();
     let run_id = Uuid::new_v4();
     let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -251,14 +255,35 @@ pub async fn run_reserved_match_probe(
 
 #[tauri::command]
 pub async fn run_relay_match_probe_command(
+    state: tauri::State<'_, MatchProbeState>,
     request: RunRelayMatchProbeRequest,
 ) -> Result<MatchProbeReport, String> {
     validate_room_id(&request.room_id)?;
+    validate_probe_limits(request.frame_count, request.timeout_ms)?;
     if request.ticket.room_id != request.room_id || request.ticket.user_id != request.local_user_id
     {
         return Err("relay ticket does not match the local room participant".into());
     }
     let session_key = combined_session_key(&request.local_nonce, &request.peer_nonce)?;
+    let room_id = request.room_id.clone();
+    let run_id = Uuid::new_v4();
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    {
+        let mut probes = state.probes.lock().await;
+        if probes.contains_key(&room_id) {
+            return Err("match probe is already active for this room".into());
+        }
+        if probes.len() >= MAX_ACTIVE_PROBES {
+            return Err("too many active match probes; cancel an older room first".into());
+        }
+        probes.insert(
+            room_id.clone(),
+            MatchProbeSlot::Running {
+                run_id,
+                cancel: cancel_tx,
+            },
+        );
+    }
     let descriptor = MatchDescriptor {
         room_id: request.room_id,
         game_id: request.game_id,
@@ -277,12 +302,17 @@ pub async fn run_relay_match_probe_command(
         Duration::from_millis(request.timeout_ms),
     )
     .map_err(|error| error.to_string())?;
-    let peer = RelayPeer::connect(&request.relay_url, &request.ticket)
-        .await
-        .map_err(|error| error.to_string())?;
-    let report = run_relay_match_probe(&peer, &config)
-        .await
-        .map_err(|error| error.to_string())?;
+    let probe = async {
+        let peer = RelayPeer::connect(&request.relay_url, &request.ticket)
+            .await
+            .map_err(|error| error.to_string())?;
+        run_relay_match_probe(&peer, &config)
+            .await
+            .map_err(|error| error.to_string())
+    };
+    let result = cancel_or_complete(probe, cancel_rx).await;
+    remove_running_probe(&state, &room_id, run_id).await;
+    let report = result?;
     tracing::info!(
         room_id = %report.room_id,
         frames = report.frames_received,
@@ -290,6 +320,32 @@ pub async fn run_relay_match_probe_command(
         "relay match probe completed"
     );
     Ok(report)
+}
+
+fn validate_probe_limits(frame_count: u64, timeout_ms: u64) -> Result<(), String> {
+    if !(1..=MAX_PROBE_FRAMES).contains(&frame_count) {
+        return Err(format!(
+            "frame_count must be between 1 and {MAX_PROBE_FRAMES}"
+        ));
+    }
+    if !(MIN_PROBE_TIMEOUT_MS..=MAX_PROBE_TIMEOUT_MS).contains(&timeout_ms) {
+        return Err(format!(
+            "timeout_ms must be between {MIN_PROBE_TIMEOUT_MS} and {MAX_PROBE_TIMEOUT_MS}"
+        ));
+    }
+    Ok(())
+}
+
+impl MatchProbeState {
+    pub fn shutdown_all(&self) {
+        if let Ok(mut probes) = self.probes.try_lock() {
+            for (_, slot) in probes.drain() {
+                if let MatchProbeSlot::Running { cancel, .. } = slot {
+                    let _ = cancel.send(true);
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]
