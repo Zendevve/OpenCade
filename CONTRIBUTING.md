@@ -38,7 +38,7 @@ OpenCade is, and always will be, **free software (Apache-2.0)** — no paywalls,
 
 👉 **[Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
 
-*Every contribution — one coffee or twenty — directly pays for the cables, machines, and hours that keep this stack open, audited, and free of ads. Thank you.*
+_Every contribution — one coffee or twenty — directly pays for the cables, machines, and hours that keep this stack open, audited, and free of ads. Thank you._
 
 ---
 
@@ -297,7 +297,6 @@ Draft PRs are welcome for early feedback — mark as `Draft` and note what is st
 Thank you for building OpenCade the right way — original code, open protocol, self-hostable infrastructure.
 
 ---
-
 
 ## ☕ One Last Ask
 

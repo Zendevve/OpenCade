@@ -15,7 +15,9 @@ OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum +
 OpenCade exists to build a completely open-source, self-hostable, and clean-room alternative to proprietary platforms like Fightcade. We believe rollback matchmaking, lobby coordination, and emulator netplay should belong to the community—not locked behind closed binaries, tracking, or paywalls.
 
 ### Why Your Support Matters
+
 Building low-latency distributed netplay across diverse real-world networks requires dedicated resources:
+
 - **Physical Multi-Node Test Hardware**: Continuous two-machine cross-NAT and cross-ISP testing across varying network topologies (Symmetric NAT, Carrier-Grade NAT, firewall edge cases).
 - **Dedicated Relay & STUN Infrastructure**: Running public fallback relays and high-availability STUN nodes so players behind strict routers can always connect.
 - **CI & Artifact Matrix**: Automated multi-platform builds, integration test runners, and binary integrity scans on every PR.
@@ -25,7 +27,7 @@ OpenCade is **100% free software (Apache-2.0)**: no paywalled features, no artif
 
 👉 **[Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
 
-*Every single contribution directly funds the infrastructure, hardware test benches, and continuous engineering needed to make independent netplay rock solid.*
+_Every single contribution directly funds the infrastructure, hardware test benches, and continuous engineering needed to make independent netplay rock solid._
 
 ---
 
