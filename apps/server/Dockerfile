@@ -38,7 +38,7 @@ COPY . .
 
 # Remove only the dummy workspace artifacts before compiling the real sources. Dependency
 # artifacts remain cached, while Cargo can no longer mistake a stub crate for the application.
-RUN cargo clean --release -p opencade-server -p opencade-protocol -p opencade-shared \
+RUN cargo clean --release --workspace \
     && cargo build --release --locked -p opencade-server \
     && test -x target/release/opencade-server
 
