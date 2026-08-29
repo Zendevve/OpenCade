@@ -42,6 +42,26 @@ describe("runtime API configuration", () => {
     await expect(api.games("session-token")).rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("rejects a launch snapshot with an incomplete payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          type: "room.snapshot",
+          version: "1.0",
+          request_id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { room: {}, route: "direct_lan" },
+        }),
+      })
+    );
+    await expect(api.roomSnapshot("session-token", "room-1")).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
   it("rejects non-http origins and embedded credentials", () => {
     expect(() => configureApiBase("file:///tmp/server")).toThrow(/HTTP or HTTPS/);
     expect(() => configureApiBase("https://user:pass@example.com")).toThrow(/credentials/);

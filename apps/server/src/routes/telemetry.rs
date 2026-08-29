@@ -16,7 +16,6 @@ use uuid::Uuid;
 use crate::{authn::AuthUser, error::AppError, state::AppState};
 
 const ACTIVATION_WINDOW_DAYS: i32 = 30;
-const RAW_RETENTION_DAYS: i32 = 90;
 const MIN_AGGREGATE_COHORT: i64 = 3;
 const MAX_EVENTS_PER_MINUTE: usize = 60;
 
@@ -60,11 +59,6 @@ pub async fn record_event(
     .bind(blocked_checks)
     .execute(&state.pool)
     .await?;
-
-    sqlx::query("DELETE FROM product_events WHERE received_at < now() - make_interval(days => $1)")
-        .bind(RAW_RETENTION_DAYS)
-        .execute(&state.pool)
-        .await?;
 
     let duplicate = inserted.rows_affected() == 0;
     Ok((

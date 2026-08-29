@@ -23,7 +23,7 @@
     },
     "emulator": {
       "type": "string",
-      "enum": ["fbneo", "flycast", "snes9x"],
+      "enum": ["fbneo", "flycast", "snes9x", "retroarch_test"],
       "description": "Emulator adapter id"
     },
     "launch": {

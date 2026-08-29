@@ -54,29 +54,36 @@ export function validateEnvelope<T>(
 
 export function parseEnvelope<T = unknown>(raw: string): Envelope<T> {
   const decoded: unknown = JSON.parse(raw);
-  if (
-    typeof decoded !== "object" ||
-    decoded === null ||
-    !("type" in decoded) ||
-    !("version" in decoded) ||
-    !("request_id" in decoded) ||
-    !("timestamp" in decoded) ||
-    !("payload" in decoded)
-  ) {
+  if (typeof decoded !== "object" || decoded === null) {
     throw new Error("invalid envelope shape: missing required fields");
   }
-  const parsed = decoded as Envelope<unknown>;
+  const parsed = decoded as Record<string, unknown>;
+  const type = parsed.type;
+  const version = parsed.version;
+  const requestId = parsed.request_id;
+  const timestamp = parsed.timestamp;
   if (
-    typeof parsed.type !== "string" ||
-    typeof parsed.version !== "string" ||
-    typeof parsed.request_id !== "string" ||
-    typeof parsed.timestamp !== "string" ||
+    typeof type !== "string" ||
+    typeof version !== "string" ||
+    typeof requestId !== "string" ||
+    typeof timestamp !== "string" ||
     parsed.payload === undefined
   ) {
     throw new Error("invalid envelope shape: missing required fields");
   }
-  const validation = validateEnvelope(parsed);
-  if (!validation.ok) throw new Error(validation.error);
+  // Validate inline on this hot path to avoid allocating validateEnvelope's result object.
+  if (!isSupportedVersion(version)) {
+    throw new Error(`unsupported version: ${version}`);
+  }
+  if (type.trim().length === 0) {
+    throw new Error("type must not be empty");
+  }
+  if (requestId.length === 0) {
+    throw new Error("request_id must not be empty");
+  }
+  if (Number.isNaN(Date.parse(timestamp))) {
+    throw new Error("timestamp must be a valid ISO-8601 string");
+  }
   return parsed as Envelope<T>;
 }
 

@@ -64,6 +64,6 @@ ENV DATABASE_URL=postgres://opencade:opencade@db:5432/opencade
 ENV OPENCADE_ENV=production
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://localhost:8080/health || exit 1
+  CMD wget -qO- http://localhost:8080/ready || exit 1
 
 CMD ["opencade-server"]

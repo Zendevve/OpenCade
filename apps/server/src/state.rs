@@ -9,7 +9,7 @@ use std::sync::{Arc, atomic::AtomicU64};
 use uuid::Uuid;
 
 use axum::extract::ws::Message;
-use opencade_protocol::Envelope;
+use opencade_protocol::{Envelope, PublicCompatibilityPayload};
 use serde_json::Value;
 
 use crate::auth_rate_limit::AuthRateLimiter;
@@ -36,13 +36,12 @@ pub struct AppState {
 
     /// In-memory registry of active WebSocket connections.
     ///
-    /// Key: connection / user id (caller-defined, typically
-    /// `request_id` or authenticated user id).
+    /// Key: authenticated user id.
     /// Value: bounded sender for [`axum::extract::ws::Message`]s to that socket.
     ///
     /// The map is wrapped in [`std::sync::Arc`] so `AppState::clone` is cheap.
     pub ws_hub: std::sync::Arc<
-        dashmap::DashMap<String, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
+        dashmap::DashMap<Uuid, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
     >,
     /// Prometheus counters for `/metrics`.
     pub metrics: Arc<Metrics>,
@@ -50,6 +49,10 @@ pub struct AppState {
     pub auth_rate_limiter: Arc<AuthRateLimiter>,
     /// Bounds CPU-heavy Argon2 work so authentication bursts cannot starve Tokio workers.
     pub password_semaphore: Arc<tokio::sync::Semaphore>,
+    /// Short-lived public aggregate cache prevents anonymous requests from repeatedly
+    /// scanning evidence JSON. The timestamp is monotonic and process-local by design.
+    pub public_compatibility_cache:
+        Arc<tokio::sync::RwLock<Option<(std::time::Instant, PublicCompatibilityPayload)>>>,
 }
 
 impl AppState {
@@ -64,13 +67,14 @@ impl AppState {
             metrics: Arc::new(Metrics::default()),
             auth_rate_limiter: Arc::new(AuthRateLimiter::default()),
             password_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
+            public_compatibility_cache: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
     /// Best-effort delivery to an authenticated user's bounded WebSocket queue.
     /// Offline users observe the same durable state through REST after reconnecting.
     pub fn notify_user(&self, user_id: Uuid, message_type: &str, payload: Value) {
-        let Some(target) = self.ws_hub.get(&user_id.to_string()) else {
+        let Some(target) = self.ws_hub.get(&user_id) else {
             return;
         };
         let envelope = Envelope::new(message_type, payload);
@@ -130,7 +134,7 @@ mod tests {
         // Verify that DashMap + Arc are the expected concrete types by
         // checking that the field can be constructed independently.
         let hub: std::sync::Arc<
-            dashmap::DashMap<String, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
+            dashmap::DashMap<Uuid, tokio::sync::mpsc::Sender<axum::extract::ws::Message>>,
         > = std::sync::Arc::new(dashmap::DashMap::new());
         assert_eq!(hub.len(), 0);
         // Suppress unused warning for PgPool import

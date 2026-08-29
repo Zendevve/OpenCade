@@ -8,6 +8,11 @@ import type { MatchReport } from "./generated/MatchReport.js";
 import type { MatchReportClient } from "./generated/MatchReportClient.js";
 import type { MatchReportCompatibility } from "./generated/MatchReportCompatibility.js";
 import type { MatchPreflightPayload } from "./generated/MatchPreflightPayload.js";
+import type { ControllerPreflightPayload } from "./generated/ControllerPreflightPayload.js";
+import type { MatchReceiptPayload } from "./generated/MatchReceiptPayload.js";
+import type { NativeRoutePolicyPayload } from "./generated/NativeRoutePolicyPayload.js";
+import type { PublicCompatibilityCohort } from "./generated/PublicCompatibilityCohort.js";
+import type { PublicCompatibilityPayload } from "./generated/PublicCompatibilityPayload.js";
 import type { LaunchBarrierPayload } from "./generated/LaunchBarrierPayload.js";
 import type { NativeRouteCapability } from "./generated/NativeRouteCapability.js";
 import type { RoomInvitePayload } from "./generated/RoomInvitePayload.js";
@@ -39,6 +44,11 @@ export type {
   MatchReportClient,
   MatchReportCompatibility,
   MatchPreflightPayload,
+  ControllerPreflightPayload,
+  MatchReceiptPayload,
+  NativeRoutePolicyPayload,
+  PublicCompatibilityCohort,
+  PublicCompatibilityPayload,
   LaunchBarrierPayload,
   NativeRouteCapability,
   RoomInvitePayload,

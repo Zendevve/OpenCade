@@ -8,7 +8,7 @@
 
 > **Open-source arcade netplay — a clean-room, community-owned alternative for low-latency rollback matchmaking and emulation.**
 
-OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, safe local FBNeo launch, direct UDP/STUN/hole-punching, authenticated readiness-probe relay fallback, and an experimental native-process RetroArch adapter. Standalone FBNeo netplay, physical cross-NAT results, behavior classification, and real two-machine RetroArch play remain explicitly unproven.
+OpenCade is a monorepo for a modern arcade netplay platform: Rust server (Axum + PostgreSQL), Tauri + React + TypeScript desktop client, and a pluggable emulator adapter SDK. The repository contains an executable **Proof of Match** control plane, deterministic mock-adapter data plane, an original no-ROM libretro Proof-of-Play fixture, safe local FBNeo launch, direct UDP/STUN/hole-punching, authenticated readiness-probe relay fallback, and an experimental native-process RetroArch adapter. Standalone FBNeo netplay, physical cross-NAT results, behavior classification, and real two-machine RetroArch play remain explicitly unproven.
 
 ## ☕ Support OpenCade — Keep Arcade Netplay Free & Independent
 
@@ -119,6 +119,7 @@ OpenCade/
 │   ├── adr/                            # Architecture decision records
 │   ├── alpha/                          # LAN test and match-report procedures
 │   ├── IMPLEMENTATION_STATUS.md        # Verified scope and explicit non-claims
+│   ├── OPPORTUNITIES_2026-08-28.md     # 20 screened bets + one recommended keystone
 │   └── reference-fightcade-install.md  # D:/Fightcade read-only notes (never copied)
 ├── docker/
 │   └── (compose at root: `docker-compose.yml` — see also `docker/` if present)

@@ -1,13 +1,17 @@
 OpenCade Windows Alpha Kit
 ==========================
 
-This is an unsigned test build. It contains no emulator, core, BIOS, or ROM content.
+This is an unsigned test build. It contains no emulator, BIOS, or ROM content. It includes one
+original Apache-2.0 deterministic libretro test core and harmless OpenCade test content.
 
 1. Verify the downloaded kit:
 
    powershell -ExecutionPolicy Bypass -File .\OpenCade-Alpha.ps1 -Mode Verify
 
-2. Prepare the user-supplied RetroArch layout described in RETROARCH_TEST.md.
+2. Prepare user-supplied RetroArch, then explicitly install the verified no-ROM test fixture:
+
+   powershell -ExecutionPolicy Bypass -File .\OpenCade-Alpha.ps1 -Mode InstallTestFixture `
+     -RetroArchRoot C:\OpenCadeAlpha\retroarch
 
 3. Validate the machine, server, and RetroArch layout:
 

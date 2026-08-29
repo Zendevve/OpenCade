@@ -138,7 +138,7 @@ async fn authenticated_users_create_and_accept_a_room(pool: PgPool) {
     let (games_status, games) =
         request(&app, Method::GET, "/api/v1/games", Some(&host_token), None).await;
     assert_eq!(games_status, StatusCode::OK);
-    assert_eq!(games.payload["games"].as_array().map(Vec::len), Some(5));
+    assert_eq!(games.payload["games"].as_array().map(Vec::len), Some(6));
 
     let (oversized_room_status, _) = request(
         &app,
@@ -639,7 +639,7 @@ async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool
         "core_sha256": "b".repeat(64),
         "content_sha256": "c".repeat(64)
     });
-    for token in [&host_token, &guest_token] {
+    for (token, player_slot) in [(&host_token, 1), (&guest_token, 2)] {
         let (status, _) = request(
             &app,
             Method::POST,
@@ -648,7 +648,11 @@ async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool
             Some(json!({
                 "room_id": room_id,
                 "compatibility": compatibility,
-                "native_port_available": true
+                "native_port_available": true,
+                "controller": {
+                    "connected": true,
+                    "player_slot": player_slot
+                }
             })),
         )
         .await;
@@ -676,6 +680,7 @@ async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool
     assert_eq!(snapshot_status, StatusCode::OK);
     assert_eq!(snapshot.payload["preflight_count"], 2);
     assert_eq!(snapshot.payload["compatibility_matched"], true);
+    assert_eq!(snapshot.payload["controller_ready_count"], 2);
     assert_eq!(snapshot.payload["barrier"]["ready_count"], 2);
     assert!(snapshot.payload["barrier"]["launch_at"].is_string());
     let launch_at = snapshot.payload["barrier"]["launch_at"].clone();
@@ -769,6 +774,133 @@ async fn community_alpha_invite_preflight_barrier_and_evidence_flow(pool: PgPool
     assert_eq!(campaign_status, StatusCode::OK);
     assert_eq!(campaign.payload["attempts"], 1);
     assert_eq!(campaign.payload["failed"], 1);
+}
+
+#[sqlx::test]
+async fn verified_match_receipt_is_idempotent_and_preserves_public_privacy(pool: PgPool) {
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations should succeed");
+    let app = build_app(AppState::new(pool.clone(), Config::for_test()));
+    let host_token = register(&app, "receipt_host").await;
+    let guest_token = register(&app, "receipt_guest").await;
+    let next_guest_token = register(&app, "receipt_next_guest").await;
+    let (_, room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/rooms",
+        Some(&host_token),
+        Some(json!({ "game_id": "opencade_test" })),
+    )
+    .await;
+    let room_id = room.payload["id"].as_str().expect("room id");
+    let (_, invite) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/invite"),
+        Some(&host_token),
+        None,
+    )
+    .await;
+    let (join_status, _) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&guest_token),
+        Some(json!({ "code": invite.payload["code"] })),
+    )
+    .await;
+    assert_eq!(join_status, StatusCode::OK);
+    sqlx::query("UPDATE rooms SET state = 'FINISHED' WHERE id = $1")
+        .bind(uuid::Uuid::parse_str(room_id).expect("room UUID"))
+        .execute(&pool)
+        .await
+        .expect("finish fixture room");
+
+    let compatibility = json!({
+        "adapter": "retroarch_test",
+        "emulator_version": "1.22.0",
+        "executable_sha256": "a".repeat(64),
+        "core_sha256": "b".repeat(64),
+        "content_sha256": "c".repeat(64)
+    });
+    for (token, role) in [(&host_token, "host"), (&guest_token, "guest")] {
+        let evidence = json!({
+            "schema_version": 1,
+            "exported_at": chrono::Utc::now(),
+            "room": { "id": room_id, "game_id": "opencade_test", "state": "finished" },
+            "probe": {
+                "role": role,
+                "transport": "direct_udp",
+                "frames_sent": 64,
+                "frames_received": 60,
+                "transcript_checksum": "0123456789abcdef",
+                "elapsed_ms": 240,
+                "nat": "mapped",
+                "candidate": "host",
+                "punch_attempts": 2
+            },
+            "client": { "platform": "windows", "user_agent": "integration-test" },
+            "compatibility": compatibility,
+            "native_route": "direct_lan"
+        });
+        let (status, _) = request(
+            &app,
+            Method::POST,
+            "/api/v1/alpha/evidence",
+            Some(token),
+            Some(json!({ "evidence": evidence })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let (public_status, public) = request(
+        &app,
+        Method::GET,
+        "/api/v1/public/compatibility",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(public_status, StatusCode::OK);
+    assert_eq!(public.payload["minimum_cohort_size"], 3);
+    assert_eq!(public.payload["cohorts"], json!([]));
+
+    let idempotency_key = uuid::Uuid::new_v4();
+    let (receipt_status, receipt) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/receipt"),
+        Some(&host_token),
+        Some(json!({ "idempotency_key": idempotency_key })),
+    )
+    .await;
+    assert_eq!(receipt_status, StatusCode::CREATED);
+    assert_eq!(receipt.payload["result"], "verified");
+    assert_eq!(receipt.payload["route"], "direct_lan");
+    let (replay_status, replay) = request(
+        &app,
+        Method::POST,
+        &format!("/api/v1/rooms/{room_id}/receipt"),
+        Some(&host_token),
+        Some(json!({ "idempotency_key": idempotency_key })),
+    )
+    .await;
+    assert_eq!(replay_status, StatusCode::OK);
+    assert_eq!(replay.payload["receipt_id"], receipt.payload["receipt_id"]);
+
+    let (next_join_status, next_room) = request(
+        &app,
+        Method::POST,
+        "/api/v1/invites/join",
+        Some(&next_guest_token),
+        Some(json!({ "code": receipt.payload["invite"]["code"] })),
+    )
+    .await;
+    assert_eq!(next_join_status, StatusCode::OK);
+    assert_eq!(next_room.payload["game_id"], "opencade_test");
 }
 
 #[sqlx::test]
@@ -947,6 +1079,14 @@ async fn product_telemetry_is_private_idempotent_bounded_and_aggregated(pool: Pg
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
+    let maintenance_state =
+        opencade_server::AppState::new(pool.clone(), opencade_server::Config::for_test());
+    assert_eq!(
+        opencade_server::lifecycle::reconcile_telemetry_retention(&maintenance_state)
+            .await
+            .expect("run telemetry retention"),
+        1
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM product_events WHERE event_id = $1")
             .bind(expired_id)

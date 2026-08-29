@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Privacy-safe compatibility evidence from verified OpenCade alpha matches."
+    />
+    <title>OpenCade Compatibility Evidence</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">OpenCade public evidence</p>
+        <h1>Compatibility map</h1>
+        <p class="lede">
+          Only cohorts with at least three independent rooms appear. Raw reports, player identities,
+          paths, endpoints, and fingerprints are never published.
+        </p>
+      </header>
+      <section aria-labelledby="evidence-heading">
+        <div class="section-heading">
+          <h2 id="evidence-heading">Verified cohorts</h2>
+          <button id="refresh" type="button">Refresh evidence</button>
+        </div>
+        <p id="status" role="status">Loading compatibility evidence…</p>
+        <div class="table-scroll" tabindex="0" aria-label="Scrollable compatibility results">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Game</th>
+                <th scope="col">Platform</th>
+                <th scope="col">Adapter</th>
+                <th scope="col">Route</th>
+                <th scope="col">Verified rate and sample</th>
+              </tr>
+            </thead>
+            <tbody id="cohorts"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -3,6 +3,7 @@ import type { MatchReportClient } from "./MatchReportClient";
 import type { MatchReportCompatibility } from "./MatchReportCompatibility";
 import type { MatchReportProbe } from "./MatchReportProbe";
 import type { MatchReportRoom } from "./MatchReportRoom";
+import type { NativeRouteCapability } from "./NativeRouteCapability";
 
 /**
  * Canonical, redacted evidence emitted by both the desktop and standalone LAN probe.
@@ -14,4 +15,5 @@ export type MatchReport = {
   probe: MatchReportProbe;
   client: MatchReportClient;
   compatibility?: MatchReportCompatibility | null;
+  native_route?: NativeRouteCapability | null;
 };

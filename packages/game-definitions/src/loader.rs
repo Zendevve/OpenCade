@@ -81,7 +81,7 @@ impl GameDefinition {
                 message: "name must not be empty".to_string(),
             });
         }
-        let allowed_emulators = ["fbneo", "flycast", "snes9x"];
+        let allowed_emulators = ["fbneo", "flycast", "snes9x", "retroarch_test"];
         if !allowed_emulators.contains(&self.emulator.as_str()) {
             return Err(GameDefError::Validation {
                 path: path.to_string(),

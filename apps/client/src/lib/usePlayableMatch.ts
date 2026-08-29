@@ -7,13 +7,16 @@ import type {
 } from "@opencade/protocol";
 import { api } from "./api";
 import { matchParticipants, selectNativeRoute } from "./match";
+import { controllerPreflight } from "./controller";
 import { initialMatchCoordinatorState, transitionMatchCoordinator } from "./matchCoordinator";
 import { trackProductEvent } from "./telemetry";
 import {
   launchRetroarchMatch,
   onEmulatorExit,
   retroarchPreflight,
+  startNativeTcpTunnel,
   stopGame,
+  stopNativeTcpTunnel,
   type MatchEndpointCandidate,
   type MatchProbeReport,
 } from "./native";
@@ -56,6 +59,7 @@ export function usePlayableMatch({
   const preflight = useMutation({
     mutationFn: async () => {
       if (!room) throw new Error("Room is unavailable for compatibility preflight");
+      if (!participants) throw new Error("Two room participants are required for preflight");
       const local = await retroarchPreflight(room.game_id);
       return api.submitPreflight(token, roomId, {
         room_id: roomId,
@@ -67,6 +71,7 @@ export function usePlayableMatch({
           core_sha256: local.core_sha256,
           content_sha256: local.content_sha256,
         },
+        controller: controllerPreflight(participants.role),
       });
     },
     onSuccess: (value) => queryClient.setQueryData(["room-snapshot", roomId], value),
@@ -103,29 +108,50 @@ export function usePlayableMatch({
         throw new Error("Native gameplay requires a verified direct UDP path");
       }
       if (!canLaunch) throw new Error("Synchronized launch barrier is not ready");
-      const route = selectNativeRoute(
-        room,
-        userId,
-        localEndpoint.endpoint,
-        peerEndpoint.endpoint,
-        probeReport.transport,
-        probeReport.candidate
-      );
+      const nativeRoute = snapshot.data?.route ?? "direct_lan";
+      const route =
+        nativeRoute === "tcp_tunnel"
+          ? { local: "127.0.0.1:55435", peer: "127.0.0.1:55435" }
+          : selectNativeRoute(
+              room,
+              userId,
+              localEndpoint.endpoint,
+              peerEndpoint.endpoint,
+              probeReport.transport,
+              probeReport.candidate
+            );
       dispatch({ type: "launch_requested" });
       await trackProductEvent(token, "launch_attempted", room.game_id).catch(() => false);
-      const grant = await api.createLaunchGrant(token, roomId, route.local, route.peer);
-      const launch = await launchRetroarchMatch({
-        launch_grant: grant.grant,
-      });
+      if (nativeRoute === "tcp_tunnel") {
+        const relay = await api.nativeTunnelTicket(token, roomId);
+        if (relay.ticket.capability !== "native_tcp_tunnel") {
+          throw new Error("Server returned an invalid native tunnel capability");
+        }
+        await startNativeTcpTunnel({
+          relay_url: relay.relay_url,
+          ticket: { ...relay.ticket, capability: "native_tcp_tunnel" },
+          mode: participants.role === "host" ? "connect" : "listen",
+          local_endpoint: "127.0.0.1:55435",
+        });
+      }
+      let launch;
+      try {
+        const grant = await api.createLaunchGrant(token, roomId, route.local, route.peer);
+        launch = await launchRetroarchMatch({ launch_grant: grant.grant });
+      } catch (error) {
+        if (nativeRoute === "tcp_tunnel") await stopNativeTcpTunnel(roomId).catch(() => undefined);
+        throw error;
+      }
       try {
         await api.startRoom(token, roomId);
       } catch (error) {
         await stopGame(launch.pid).catch(() => undefined);
+        if (nativeRoute === "tcp_tunnel") await stopNativeTcpTunnel(roomId).catch(() => undefined);
         throw error;
       }
       await queryClient.invalidateQueries({ queryKey: ["room", roomId] });
       await trackProductEvent(token, "launch_succeeded", room.game_id).catch(() => false);
-      return launch;
+      return { ...launch, native_route: nativeRoute };
     },
     onSuccess: () => dispatch({ type: "native_spawned" }),
     onError: (error) =>
@@ -163,10 +189,15 @@ export function usePlayableMatch({
   }, [coordinator.phase, preflight]);
 
   useEffect(() => {
-    if (!snapshot.data?.compatibility_matched || readyStarted.current) return;
+    if (
+      !snapshot.data?.compatibility_matched ||
+      snapshot.data.controller_ready_count !== 2 ||
+      readyStarted.current
+    )
+      return;
     readyStarted.current = true;
     ready.mutate();
-  }, [ready, snapshot.data?.compatibility_matched]);
+  }, [ready, snapshot.data?.compatibility_matched, snapshot.data?.controller_ready_count]);
 
   useEffect(() => {
     if (room?.state === "playing") dispatch({ type: "room_playing" });
@@ -190,6 +221,13 @@ export function usePlayableMatch({
     };
   }, [queryClient, roomId]);
 
+  useEffect(
+    () => () => {
+      void stopNativeTcpTunnel(roomId);
+    },
+    [roomId]
+  );
+
   return {
     coordinator,
     participants,
@@ -198,6 +236,12 @@ export function usePlayableMatch({
     preflightPending: preflight.isPending,
     launchBarrierPending: ready.isPending,
     canLaunch,
+    retryPreflight: () => {
+      preflightStarted.current = true;
+      readyStarted.current = false;
+      preflight.reset();
+      preflight.mutate();
+    },
     resetCoordinator: () => {
       preflightStarted.current = false;
       readyStarted.current = false;

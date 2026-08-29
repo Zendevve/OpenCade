@@ -1,8 +1,9 @@
 use axum::{Json, extract::Path, extract::State, http::StatusCode};
 use chrono::{DateTime, Duration, Utc};
+use opencade_networking::verify_playable_match_reports;
 use opencade_protocol::{
-    Envelope, LaunchBarrierPayload, MatchPreflightPayload, MatchReportCompatibility,
-    NativeRouteCapability, RoomInvitePayload, RoomSnapshotPayload,
+    Envelope, LaunchBarrierPayload, MatchPreflightPayload, MatchReceiptPayload, MatchReport,
+    MatchReportCompatibility, NativeRouteCapability, RoomInvitePayload, RoomSnapshotPayload,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -24,6 +25,11 @@ const LAUNCH_DELAY_SECONDS: i64 = 5;
 #[derive(Debug, Deserialize)]
 pub struct JoinInviteRequest {
     code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MatchReceiptRequest {
+    idempotency_key: Uuid,
 }
 
 pub async fn create_invite(
@@ -128,8 +134,14 @@ pub async fn join_invite(
         return Err(AppError::Conflict("room is full".into()));
     }
     sqlx::query(
-        "UPDATE rooms SET state = 'CANCELLED'
-         WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING' AND id <> $3",
+        "WITH cancelled AS (
+             UPDATE rooms SET state = 'CANCELLED', state_deadline_at = NULL
+             WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING' AND id <> $3
+             RETURNING attempt_id
+         )
+         UPDATE match_attempts SET state = 'CANCELLED', deadline_at = NULL,
+             finished_at = COALESCE(finished_at, now())
+         WHERE attempt_id IN (SELECT attempt_id FROM cancelled) AND state = 'ACTIVE'",
     )
     .bind(user.id)
     .bind(&game_id)
@@ -141,11 +153,21 @@ pub async fn join_invite(
         .bind(user.id)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("UPDATE rooms SET state = $2 WHERE id = $1")
-        .bind(room_id)
-        .bind(to_database(&next))
-        .execute(&mut *transaction)
-        .await?;
+    sqlx::query(
+        "UPDATE rooms SET state = $2, state_deadline_at = now() + interval '2 minutes'
+         WHERE id = $1",
+    )
+    .bind(room_id)
+    .bind(to_database(&next))
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE match_attempts SET deadline_at = now() + interval '2 minutes'
+         WHERE attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1) AND state = 'ACTIVE'",
+    )
+    .bind(room_id)
+    .execute(&mut *transaction)
+    .await?;
     sqlx::query(
         "UPDATE room_invites SET consumed_at = now(), consumed_by = $2 WHERE code_hash = $1",
     )
@@ -173,17 +195,26 @@ pub async fn submit_preflight(
     validate_compatibility(&payload.compatibility)?;
     let mut transaction = state.pool.begin().await?;
     let attempt_id = lock_active_attempt(&mut transaction, room_id, user.id).await?;
+    let expected_slot = expected_player_slot(&mut transaction, room_id, user.id).await?;
+    if payload.controller.player_slot != expected_slot {
+        return Err(AppError::BadRequest(format!(
+            "controller must be assigned to player slot {expected_slot}"
+        )));
+    }
     sqlx::query("DELETE FROM room_launch_barriers WHERE room_id = $1")
         .bind(room_id)
         .execute(&mut *transaction)
         .await?;
     sqlx::query(
         "INSERT INTO match_preflights
-            (room_id, user_id, compatibility, native_port_available, ready, updated_at, attempt_id)
-         VALUES ($1, $2, $3, $4, FALSE, now(), $5)
+            (room_id, user_id, compatibility, native_port_available, controller_connected,
+             player_slot, ready, updated_at, attempt_id)
+         VALUES ($1, $2, $3, $4, $5, $6, FALSE, now(), $7)
          ON CONFLICT (room_id, user_id) DO UPDATE SET
             compatibility = EXCLUDED.compatibility,
             native_port_available = EXCLUDED.native_port_available,
+            controller_connected = EXCLUDED.controller_connected,
+            player_slot = EXCLUDED.player_slot,
             ready = FALSE,
             attempt_id = EXCLUDED.attempt_id,
             updated_at = now()",
@@ -192,6 +223,8 @@ pub async fn submit_preflight(
     .bind(user.id)
     .bind(json!(payload.compatibility))
     .bind(payload.native_port_available)
+    .bind(payload.controller.connected)
+    .bind(i16::from(payload.controller.player_slot))
     .bind(attempt_id)
     .execute(&mut *transaction)
     .await?;
@@ -203,7 +236,11 @@ pub async fn submit_preflight(
     .bind(room_id)
     .bind(attempt_id)
     .bind(user.id)
-    .bind(json!({ "native_port_available": payload.native_port_available }))
+    .bind(json!({
+        "native_port_available": payload.native_port_available,
+        "controller_connected": payload.controller.connected,
+        "player_slot": payload.controller.player_slot
+    }))
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
@@ -231,11 +268,11 @@ pub async fn ready_to_launch(
 ) -> Result<Json<Envelope<Value>>, AppError> {
     let mut transaction = state.pool.begin().await?;
     let attempt_id = lock_active_attempt(&mut transaction, room_id, user.id).await?;
-    let (preflight_count, compatibility_matched) =
+    let (preflight_count, compatibility_matched, controllers_ready) =
         preflight_status(&mut transaction, room_id, attempt_id).await?;
-    if preflight_count != 2 || !compatibility_matched {
+    if preflight_count != 2 || !compatibility_matched || !controllers_ready {
         return Err(AppError::Conflict(
-            "both peers must pass matching compatibility preflight".into(),
+            "both peers must pass matching compatibility and controller preflight".into(),
         ));
     }
     sqlx::query(
@@ -289,6 +326,214 @@ pub async fn ready_to_launch(
     Ok(Json(Envelope::new("match.launch.ready", json!(snapshot))))
 }
 
+pub async fn create_match_receipt(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(source_room_id): Path<Uuid>,
+    Json(request): Json<MatchReceiptRequest>,
+) -> Result<(StatusCode, Json<Envelope<Value>>), AppError> {
+    if let Some(row) = sqlx::query(
+        "SELECT command_type, response_payload FROM command_results
+         WHERE actor_id = $1 AND idempotency_key = $2",
+    )
+    .bind(user.id)
+    .bind(request.idempotency_key)
+    .fetch_optional(&state.pool)
+    .await?
+    {
+        if row.try_get::<String, _>("command_type")? != "match.receipt.create" {
+            return Err(AppError::Conflict(
+                "idempotency key was already used for another command".into(),
+            ));
+        }
+        let payload: Value = row.try_get("response_payload")?;
+        return Ok((
+            StatusCode::OK,
+            Json(Envelope::new("match.receipt.created", payload)),
+        ));
+    }
+
+    let mut transaction = state.pool.begin().await?;
+    let game_id = sqlx::query_scalar::<_, String>(
+        "SELECT rooms.game_id
+         FROM rooms
+         JOIN room_members ON room_members.room_id = rooms.id AND room_members.user_id = $2
+         WHERE rooms.id = $1 AND rooms.state = 'FINISHED'
+         FOR UPDATE OF rooms",
+    )
+    .bind(source_room_id)
+    .bind(user.id)
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| AppError::Conflict("finished room membership is required".into()))?;
+    if let Some(row) = sqlx::query(
+        "SELECT command_type, response_payload FROM command_results
+         WHERE actor_id = $1 AND idempotency_key = $2",
+    )
+    .bind(user.id)
+    .bind(request.idempotency_key)
+    .fetch_optional(&mut *transaction)
+    .await?
+    {
+        if row.try_get::<String, _>("command_type")? != "match.receipt.create" {
+            return Err(AppError::Conflict(
+                "idempotency key was already used for another command".into(),
+            ));
+        }
+        let payload: Value = row.try_get("response_payload")?;
+        transaction.commit().await?;
+        return Ok((
+            StatusCode::OK,
+            Json(Envelope::new("match.receipt.created", payload)),
+        ));
+    }
+    let failures = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM alpha_evidence WHERE room_id = $1 AND kind = 'attempt_failure'",
+    )
+    .bind(source_room_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    let reports = sqlx::query_scalar::<_, Value>(
+        "SELECT payload FROM alpha_evidence
+         WHERE room_id = $1 AND kind = 'match' ORDER BY role",
+    )
+    .bind(source_room_id)
+    .fetch_all(&mut *transaction)
+    .await?;
+    if reports.len() != 2 || failures != 0 {
+        return Err(AppError::Conflict(
+            "a verified two-peer evidence pair is required before creating a receipt".into(),
+        ));
+    }
+    let first: MatchReport = serde_json::from_value(reports[0].clone())
+        .map_err(|_| AppError::Conflict("match evidence is not verifiable".into()))?;
+    let second: MatchReport = serde_json::from_value(reports[1].clone())
+        .map_err(|_| AppError::Conflict("match evidence is not verifiable".into()))?;
+    verify_playable_match_reports(&first, &second)
+        .map_err(|_| AppError::Conflict("match evidence pair did not verify".into()))?;
+    if first.native_route != second.native_route {
+        return Err(AppError::Conflict(
+            "match evidence route does not match".into(),
+        ));
+    }
+    let route = parse_native_route(first.native_route.map(|value| match value {
+        NativeRouteCapability::DirectLan => "direct_lan".to_string(),
+        NativeRouteCapability::TcpTunnel => "tcp_tunnel".to_string(),
+    }))?;
+
+    let existing_receipt = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM match_receipts WHERE source_room_id = $1 AND created_by = $2)",
+    )
+    .bind(source_room_id)
+    .bind(user.id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    if existing_receipt {
+        return Err(AppError::Conflict(
+            "a continuation receipt already exists for this match".into(),
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE rooms SET state = 'CANCELLED'
+         WHERE host_user_id = $1 AND game_id = $2 AND state = 'WAITING'",
+    )
+    .bind(user.id)
+    .bind(&game_id)
+    .execute(&mut *transaction)
+    .await?;
+    let next_room_id = Uuid::new_v4();
+    let attempt_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO rooms
+            (id, game_id, host_user_id, state, max_players, attempt_id, state_deadline_at)
+         VALUES ($1, $2, $3, 'WAITING', 2, $4, now() + interval '24 hours')",
+    )
+    .bind(next_room_id)
+    .bind(&game_id)
+    .bind(user.id)
+    .bind(attempt_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("INSERT INTO room_members (room_id, user_id) VALUES ($1, $2)")
+        .bind(next_room_id)
+        .bind(user.id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        "INSERT INTO match_attempts (attempt_id, room_id, state, deadline_at)
+         VALUES ($1, $2, 'ACTIVE', now() + interval '24 hours')",
+    )
+    .bind(attempt_id)
+    .bind(next_room_id)
+    .execute(&mut *transaction)
+    .await?;
+
+    let code = Uuid::new_v4().simple().to_string()[..10].to_ascii_uppercase();
+    let expires_at = Utc::now() + Duration::minutes(INVITE_TTL_MINUTES);
+    sqlx::query(
+        "INSERT INTO room_invites (code_hash, room_id, created_by, expires_at)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(hash_token(&code))
+    .bind(next_room_id)
+    .bind(user.id)
+    .bind(expires_at)
+    .execute(&mut *transaction)
+    .await?;
+
+    let receipt_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO match_receipts (id, source_room_id, created_by, next_room_id)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(receipt_id)
+    .bind(source_room_id)
+    .bind(user.id)
+    .bind(next_room_id)
+    .execute(&mut *transaction)
+    .await?;
+    let payload = MatchReceiptPayload {
+        receipt_id: receipt_id.to_string(),
+        game_id,
+        result: "verified".into(),
+        route,
+        compatibility_verified: true,
+        created_at: Utc::now(),
+        invite: RoomInvitePayload {
+            room_id: next_room_id.to_string(),
+            code,
+            expires_at,
+        },
+    };
+    let response_payload = json!(payload);
+    sqlx::query(
+        "INSERT INTO command_results
+            (actor_id, idempotency_key, command_type, response_type, response_payload)
+         VALUES ($1, $2, 'match.receipt.create', 'match.receipt.created', $3)",
+    )
+    .bind(user.id)
+    .bind(request.idempotency_key)
+    .bind(&response_payload)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(Envelope::new("match.receipt.created", response_payload)),
+    ))
+}
+
+fn parse_native_route(value: Option<String>) -> Result<NativeRouteCapability, AppError> {
+    match value.as_deref() {
+        Some("direct_lan") => Ok(NativeRouteCapability::DirectLan),
+        Some("tcp_tunnel") => Ok(NativeRouteCapability::TcpTunnel),
+        _ => Err(AppError::Conflict(
+            "match evidence does not contain one supported native route".into(),
+        )),
+    }
+}
+
 async fn build_snapshot(
     state: &AppState,
     room_id: Uuid,
@@ -296,7 +541,7 @@ async fn build_snapshot(
 ) -> Result<RoomSnapshotPayload, AppError> {
     let room = room_payload(state, room_id, user_id).await?;
     let rows = sqlx::query(
-        "SELECT compatibility, native_port_available, ready
+        "SELECT compatibility, native_port_available, controller_connected, player_slot, ready
          FROM match_preflights
          WHERE room_id = $1
            AND attempt_id = (SELECT attempt_id FROM rooms WHERE id = $1)
@@ -319,6 +564,13 @@ async fn build_snapshot(
         .iter()
         .filter(|row| row.try_get::<bool, _>("ready").unwrap_or(false))
         .count();
+    let controller_ready_count = rows
+        .iter()
+        .filter(|row| {
+            row.try_get::<bool, _>("controller_connected")
+                .unwrap_or(false)
+        })
+        .count();
     let launch_at = sqlx::query_scalar::<_, DateTime<Utc>>(
         "SELECT launch_at FROM room_launch_barriers
          WHERE room_id = $1
@@ -333,18 +585,30 @@ async fn build_snapshot(
     .bind(room_id)
     .fetch_one(&state.pool)
     .await?;
+    let tunnel_evidence = if state.config.evidence_tcp_tunnel_enabled {
+        crate::route_policy::tcp_tunnel_evidence(&state.pool, &room.game_id).await?
+    } else {
+        crate::route_policy::RouteEvidence::default()
+    };
+    let route_policy = crate::route_policy::decide_native_route(
+        state.config.evidence_tcp_tunnel_enabled,
+        state.config.route_policy_min_attempts,
+        tunnel_evidence,
+    );
     Ok(RoomSnapshotPayload {
         room,
         revision,
         preflight_count: u8::try_from(rows.len()).unwrap_or(u8::MAX),
         compatibility_matched,
+        controller_ready_count: u8::try_from(controller_ready_count).unwrap_or(u8::MAX),
         barrier: LaunchBarrierPayload {
             room_id: room_id.to_string(),
             ready_count: u8::try_from(ready_count).unwrap_or(u8::MAX),
             required_count: 2,
             launch_at,
         },
-        route: NativeRouteCapability::DirectLan,
+        route: route_policy.route,
+        route_policy,
     })
 }
 
@@ -387,9 +651,9 @@ async fn preflight_status(
     transaction: &mut Transaction<'_, Postgres>,
     room_id: Uuid,
     attempt_id: Uuid,
-) -> Result<(usize, bool), AppError> {
+) -> Result<(usize, bool, bool), AppError> {
     let rows = sqlx::query(
-        "SELECT compatibility, native_port_available
+        "SELECT compatibility, native_port_available, controller_connected, player_slot
          FROM match_preflights
          WHERE room_id = $1 AND attempt_id = $2
          ORDER BY user_id",
@@ -408,7 +672,29 @@ async fn preflight_status(
             row.try_get::<bool, _>("native_port_available")
                 .unwrap_or(false)
         });
-    Ok((rows.len(), matched))
+    let controllers_ready = rows.len() == 2
+        && rows.iter().all(|row| {
+            row.try_get::<bool, _>("controller_connected")
+                .unwrap_or(false)
+        })
+        && rows
+            .iter()
+            .filter_map(|row| row.try_get::<i16, _>("player_slot").ok())
+            .collect::<std::collections::BTreeSet<_>>()
+            == std::collections::BTreeSet::from([1, 2]);
+    Ok((rows.len(), matched, controllers_ready))
+}
+
+async fn expected_player_slot(
+    transaction: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    user_id: Uuid,
+) -> Result<u8, AppError> {
+    let host_id = sqlx::query_scalar::<_, Uuid>("SELECT host_user_id FROM rooms WHERE id = $1")
+        .bind(room_id)
+        .fetch_one(&mut **transaction)
+        .await?;
+    Ok(if host_id == user_id { 1 } else { 2 })
 }
 
 async fn notify_members(
@@ -448,7 +734,7 @@ fn validate_compatibility(value: &MatchReportCompatibility) -> Result<(), AppErr
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     };
-    if value.adapter != "retroarch_fbneo"
+    if !matches!(value.adapter.as_str(), "retroarch_fbneo" | "retroarch_test")
         || value
             .emulator_version
             .as_ref()

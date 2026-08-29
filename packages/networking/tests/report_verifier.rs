@@ -37,6 +37,7 @@ fn report(role: MatchReportRole) -> MatchReport {
             user_agent: "opencade-test".into(),
         },
         compatibility: None,
+        native_route: None,
     }
 }
 
@@ -61,6 +62,7 @@ fn failure_report(room_id: String) -> AlphaFailureReport {
             platform: "windows".into(),
             user_agent: "opencade-test".into(),
         },
+        native_route: None,
     }
 }
 

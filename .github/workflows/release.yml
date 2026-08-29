@@ -9,9 +9,65 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    name: Validate tagged commit
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: opencade
+          POSTGRES_PASSWORD: opencade
+          POSTGRES_DB: opencade_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U opencade -d opencade_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Require a matching semantic version
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+        env:
+          DATABASE_URL: postgres://opencade:opencade@localhost:5432/opencade_test
+          SESSION_SECRET: release-test-secret-at-least-32-bytes
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --deny warnings
+      - run: pnpm audit --prod --audit-level high
+
   windows:
     runs-on: windows-latest
+    needs: validate
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -26,6 +82,13 @@ jobs:
       - run: pnpm build
       - run: cargo build -p opencade-networking --bins --release --locked
       - run: cargo build --manifest-path apps/client/src-tauri/Cargo.toml --release --locked
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build deterministic OpenCade test core
+        shell: pwsh
+        run: .\scripts\alpha\Build-TestCore.ps1
       - name: Require and import Windows signing certificate
         shell: pwsh
         env:
@@ -49,7 +112,8 @@ jobs:
             "apps\client\src-tauri\target\release\opencade-client.exe",
             "target\release\opencade-match-probe.exe",
             "target\release\opencade-match-verify.exe",
-            "target\release\opencade-alpha-summary.exe"
+            "target\release\opencade-alpha-summary.exe",
+            "fixtures\libretro\opencade-test-core\build\opencade_test_libretro.dll"
           )
           foreach ($executable in $executables) {
             & $signTool sign /sha1 $env:OPENCADE_CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $executable

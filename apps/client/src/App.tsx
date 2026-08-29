@@ -4,7 +4,6 @@ import type {
   Envelope,
   MatchEndpointPayload,
   MatchProbeCompletedPayload,
-  RoomPayload,
   RoomSnapshotPayload,
 } from "@opencade/protocol";
 import DiagnosticsButton from "./components/DiagnosticsButton";
@@ -12,7 +11,7 @@ import { ApiError, api, configureApiBase } from "./lib/api";
 import { parseMatchCompletion, parseMatchEndpoint } from "./lib/match";
 import { cancelMatchProbe, loadRuntimeConfig } from "./lib/native";
 import { useSessionStore } from "./lib/store";
-import { newestSnapshot } from "./lib/snapshot";
+import { isRoomPayload, isRoomSnapshot, newestSnapshot } from "./lib/snapshot";
 import { OpenCadeSocket, type ConnectionState } from "./lib/ws";
 import Auth from "./routes/Auth";
 import Games from "./routes/Games";
@@ -116,6 +115,13 @@ export default function App() {
           (current) => newestSnapshot(current, snapshot)
         );
         queryClient.setQueryData(["room", snapshot.room.id], snapshot.room);
+      }
+      if (message.type === "room.deadline.expired") {
+        const roomId = roomIdFromPayload(message.payload);
+        if (roomId) {
+          void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+          void queryClient.invalidateQueries({ queryKey: ["room-snapshot", roomId] });
+        }
       }
     });
     socket.connect();
@@ -228,50 +234,6 @@ export default function App() {
         )}
       </main>
     </div>
-  );
-}
-
-function isRoomPayload(payload: unknown): payload is RoomPayload {
-  const states = new Set([
-    "waiting",
-    "ready",
-    "challenging",
-    "connecting",
-    "playing",
-    "finished",
-    "cancelled",
-  ]);
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    typeof Reflect.get(payload, "id") === "string" &&
-    typeof Reflect.get(payload, "game_id") === "string" &&
-    typeof Reflect.get(payload, "host_id") === "string" &&
-    (Reflect.get(payload, "guest_id") === null ||
-      typeof Reflect.get(payload, "guest_id") === "string") &&
-    states.has(String(Reflect.get(payload, "state")))
-  );
-}
-
-function isRoomSnapshot(payload: unknown): payload is RoomSnapshotPayload {
-  const barrier =
-    typeof payload === "object" && payload !== null ? Reflect.get(payload, "barrier") : null;
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    isRoomPayload(Reflect.get(payload, "room")) &&
-    Number.isSafeInteger(Reflect.get(payload, "revision")) &&
-    Number.isSafeInteger(Reflect.get(payload, "preflight_count")) &&
-    typeof Reflect.get(payload, "compatibility_matched") === "boolean" &&
-    typeof barrier === "object" &&
-    barrier !== null &&
-    typeof Reflect.get(barrier, "room_id") === "string" &&
-    Number.isSafeInteger(Reflect.get(barrier, "ready_count")) &&
-    Number.isSafeInteger(Reflect.get(barrier, "required_count")) &&
-    (Reflect.get(barrier, "launch_at") === null ||
-      (typeof Reflect.get(barrier, "launch_at") === "string" &&
-        !Number.isNaN(Date.parse(String(Reflect.get(barrier, "launch_at")))))) &&
-    ["direct_lan", "tcp_tunnel"].includes(String(Reflect.get(payload, "route")))
   );
 }
 

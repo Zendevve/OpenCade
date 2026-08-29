@@ -183,6 +183,15 @@ jobs:
       - name: Build Windows LAN alpha tools
         run: cargo build -p opencade-networking --bins --release --locked
 
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build deterministic OpenCade test core
+        shell: pwsh
+        run: .\scripts\alpha\Build-TestCore.ps1
+
       - name: Build Windows desktop alpha
         run: cargo build --manifest-path apps/client/src-tauri/Cargo.toml --release --locked
 

@@ -527,6 +527,7 @@ mod tests {
                 user_agent: "opencade-test".into(),
             },
             compatibility: None,
+            native_route: None,
         }
     }
 
@@ -551,6 +552,7 @@ mod tests {
                 platform: "windows".into(),
                 user_agent: "opencade-test".into(),
             },
+            native_route: None,
         }
     }
 

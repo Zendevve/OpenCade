@@ -13,7 +13,8 @@ export function buildMatchReport(
   room: RoomPayload,
   probe: MatchProbeReport,
   now = new Date(),
-  compatibility?: MatchReportCompatibility
+  compatibility?: MatchReportCompatibility,
+  nativeRoute: "direct_lan" | "tcp_tunnel" = "direct_lan"
 ): MatchReport {
   return {
     schema_version: 1,
@@ -35,6 +36,7 @@ export function buildMatchReport(
       user_agent: typeof navigator === "undefined" ? "unknown" : navigator.userAgent,
     },
     compatibility: compatibility ?? null,
+    native_route: nativeRoute,
   };
 }
 
@@ -46,7 +48,7 @@ export function downloadMatchReport(
   const compatibility = compatibilityFromLaunch(playable);
   downloadJson(
     `opencade-match-${room.id.slice(0, 8)}.json`,
-    buildMatchReport(room, probe, new Date(), compatibility)
+    buildMatchReport(room, probe, new Date(), compatibility, playable?.native_route)
   );
 }
 
@@ -68,6 +70,7 @@ export type AlphaFailureEvidence = {
   stage: AlphaFailureStage;
   error_code: string;
   transport?: MatchReportTransport;
+  native_route?: "direct_lan" | "tcp_tunnel";
 };
 
 export function buildAlphaFailureReport(
@@ -88,6 +91,7 @@ export function buildAlphaFailureReport(
     stage: failure.stage,
     error_code: failure.error_code,
     transport: failure.transport ?? null,
+    native_route: failure.native_route ?? null,
     client: {
       platform: typeof navigator === "undefined" ? "unknown" : navigator.platform,
       user_agent: typeof navigator === "undefined" ? "unknown" : navigator.userAgent,

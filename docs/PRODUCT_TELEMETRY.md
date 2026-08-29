@@ -1,6 +1,6 @@
 # Product telemetry
 
-OpenFight product telemetry measures whether players can move from choosing a game to entering its
+OpenCade product telemetry measures whether players can move from choosing a game to entering its
 lobby. It is disabled until a player explicitly opts in, and the choice can be changed from the
 Games screen at any time. Telemetry delivery never blocks the match flow.
 
@@ -26,7 +26,8 @@ typed blocker list. There is no arbitrary-properties field.
   text, and error messages are not accepted by the schema.
 - The anonymous session identifier lives in `sessionStorage` and therefore does not become a
   durable cross-session identity.
-- Raw events older than 90 days are deleted during ingestion.
+- Raw events older than 90 days are removed by a bounded background maintenance pass. A failed pass
+  is logged and retried without delaying event ingestion.
 - Ingestion is capped at 60 events per authenticated account per minute.
 - The complete summary is suppressed until it contains three selected sessions; blocker dimensions
   with fewer than three events are also omitted.
@@ -41,4 +42,6 @@ typed blocker list. There is no arbitrary-properties field.
   `game_selected`;
 - readiness blocker events grouped by typed check after small-cohort suppression.
 
-The endpoint requires authentication. Rates are `0` when there are no selected sessions.
+The endpoint requires both a user bearer token and the operator token. Rates are `0` when there are
+no selected sessions; the current payload does not yet distinguish privacy suppression from a
+genuine zero and must not be used alone for demand decisions.

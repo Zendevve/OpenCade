@@ -111,6 +111,31 @@ describe("buildMatchReport", () => {
     expect(JSON.stringify(report.compatibility)).not.toContain("C:\\");
     expect(JSON.stringify(report.compatibility)).not.toContain("path");
   });
+
+  it("records an evidence-qualified native tunnel separately from probe transport", () => {
+    const report = buildMatchReport(
+      {
+        id: "room-123",
+        game_id: "opencade_test",
+        host_id: "host",
+        guest_id: "guest",
+        state: "finished",
+      },
+      probe,
+      new Date("2026-08-23T12:00:00Z"),
+      {
+        adapter: "retroarch_test",
+        emulator_version: "1.22.0",
+        executable_sha256: "a".repeat(64),
+        core_sha256: "b".repeat(64),
+        content_sha256: "c".repeat(64),
+      },
+      "tcp_tunnel"
+    );
+
+    expect(report.probe.transport).toBe("direct_udp");
+    expect(report.native_route).toBe("tcp_tunnel");
+  });
 });
 
 describe("buildAlphaFailureReport", () => {
@@ -130,6 +155,7 @@ describe("buildAlphaFailureReport", () => {
         stage: "relay",
         error_code: "relay_probe_failed",
         transport: "relay",
+        native_route: "tcp_tunnel",
       },
       new Date("2026-08-24T12:00:00Z")
     );
@@ -138,6 +164,7 @@ describe("buildAlphaFailureReport", () => {
     expect(report.kind).toBe("attempt_failure");
     expect(report.stage).toBe("relay");
     expect(report.transport).toBe("relay");
+    expect(report.native_route).toBe("tcp_tunnel");
     expect(serialized).not.toContain("host_id");
     expect(serialized).not.toContain("guest_id");
     expect(serialized).not.toContain("endpoint");

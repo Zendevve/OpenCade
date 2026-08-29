@@ -9,6 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -26,6 +27,53 @@ pub const ALPHA_FAILURE_REPORT_SCHEMA_VERSION: u8 = 1;
 /// Accepts both canonical `"1.0"` and compat `"1"`.
 pub fn is_supported_version(v: &str) -> bool {
     v == "1.0" || v == "1"
+}
+
+/// Allocation-free view of an inbound wire envelope.
+///
+/// The payload remains raw JSON until dispatch identifies its concrete type. This avoids
+/// constructing a generic [`serde_json::Value`] tree and cloning it before typed validation.
+#[derive(Debug, Deserialize)]
+pub struct BorrowedEnvelope<'a> {
+    #[serde(rename = "type", borrow)]
+    pub msg_type: &'a str,
+    #[serde(borrow)]
+    pub version: &'a str,
+    #[serde(borrow)]
+    pub request_id: &'a str,
+    #[serde(borrow)]
+    pub timestamp: &'a str,
+    #[serde(borrow)]
+    pub payload: &'a RawValue,
+}
+
+impl<'a> BorrowedEnvelope<'a> {
+    /// Parses and validates the common envelope fields while borrowing from `raw`.
+    pub fn parse(raw: &'a str) -> Result<Self, &'static str> {
+        let envelope: Self = serde_json::from_str(raw).map_err(|_| "invalid envelope")?;
+        envelope.validate()?;
+        Ok(envelope)
+    }
+
+    /// Validates common fields after a caller has decoded the borrowed envelope.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !is_supported_version(self.version) {
+            return Err("unsupported protocol version");
+        }
+        if self.msg_type.trim().is_empty() || self.msg_type.len() > 64 {
+            return Err("invalid message type");
+        }
+        if self.request_id.is_empty() || self.request_id.len() > 128 {
+            return Err("invalid request id");
+        }
+        DateTime::parse_from_rfc3339(self.timestamp).map_err(|_| "invalid timestamp")?;
+        Ok(())
+    }
+
+    /// Deserializes the payload exactly once after message dispatch chooses its type.
+    pub fn payload_as<T: Deserialize<'a>>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_str(self.payload.get())
+    }
 }
 /// Versioned envelope wrapping every protocol message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -191,7 +239,7 @@ pub enum NatMappingState {
 }
 
 /// Candidate selected by the bounded direct-UDP traversal attempt.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
 #[ts(export, export_to = "../src/generated/MatchCandidateKind.ts")]
 #[serde(rename_all = "snake_case")]
 pub enum MatchCandidateKind {
@@ -279,6 +327,14 @@ pub enum NativeRouteCapability {
     TcpTunnel,
 }
 
+/// Local controller observation and deterministic player assignment for native netplay.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/ControllerPreflightPayload.ts")]
+pub struct ControllerPreflightPayload {
+    pub connected: bool,
+    pub player_slot: u8,
+}
+
 /// Privacy-safe compatibility handshake performed before either emulator is launched.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[ts(export, export_to = "../src/generated/MatchPreflightPayload.ts")]
@@ -286,6 +342,17 @@ pub struct MatchPreflightPayload {
     pub room_id: String,
     pub compatibility: MatchReportCompatibility,
     pub native_port_available: bool,
+    pub controller: ControllerPreflightPayload,
+}
+
+/// Evidence-backed route decision. Insufficient samples always preserve the direct-LAN policy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/NativeRoutePolicyPayload.ts")]
+pub struct NativeRoutePolicyPayload {
+    pub route: NativeRouteCapability,
+    pub reason: String,
+    pub evidence_attempts: u32,
+    pub evidence_verified: u32,
 }
 
 /// Server-authoritative launch barrier shared by both room participants.
@@ -307,8 +374,10 @@ pub struct RoomSnapshotPayload {
     pub revision: i64,
     pub preflight_count: u8,
     pub compatibility_matched: bool,
+    pub controller_ready_count: u8,
     pub barrier: LaunchBarrierPayload,
     pub route: NativeRouteCapability,
+    pub route_policy: NativeRoutePolicyPayload,
 }
 
 /// Short-lived room invite. Only the creator receives the secret code.
@@ -318,6 +387,19 @@ pub struct RoomInvitePayload {
     pub room_id: String,
     pub code: String,
     pub expires_at: DateTime<Utc>,
+}
+
+/// Privacy-safe proof of a completed match paired with a fresh, expiring continuation invite.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/MatchReceiptPayload.ts")]
+pub struct MatchReceiptPayload {
+    pub receipt_id: String,
+    pub game_id: String,
+    pub result: String,
+    pub route: NativeRouteCapability,
+    pub compatibility_verified: bool,
+    pub created_at: DateTime<Utc>,
+    pub invite: RoomInvitePayload,
 }
 
 /// Stable stages for privacy-minimized evidence from an abandoned alpha attempt.
@@ -354,6 +436,8 @@ pub struct AlphaFailureReport {
     pub stage: AlphaFailureStage,
     pub error_code: String,
     pub transport: Option<MatchReportTransport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_route: Option<NativeRouteCapability>,
     pub client: MatchReportClient,
 }
 
@@ -368,6 +452,32 @@ pub struct MatchReport {
     pub client: MatchReportClient,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<MatchReportCompatibility>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_route: Option<NativeRouteCapability>,
+}
+
+/// A k-anonymous compatibility cohort suitable for unauthenticated publication.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/PublicCompatibilityCohort.ts")]
+pub struct PublicCompatibilityCohort {
+    pub game_id: String,
+    pub platform: String,
+    pub adapter: String,
+    pub emulator_version: Option<String>,
+    pub transport: String,
+    pub native_route: NativeRouteCapability,
+    pub attempts: u32,
+    pub verified: u32,
+}
+
+/// Public aggregate contract. Cohorts below `minimum_cohort_size` are omitted server-side.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "../src/generated/PublicCompatibilityPayload.ts")]
+pub struct PublicCompatibilityPayload {
+    pub schema_version: u8,
+    pub generated_at: DateTime<Utc>,
+    pub minimum_cohort_size: u8,
+    pub cohorts: Vec<PublicCompatibilityCohort>,
 }
 /// Room lifecycle states. Serialized as `snake_case` strings.
 /// ARCHITECTURE.md §9 DB stores WAITING/READY/PLAYING/FINISHED/CANCELLED (upper);
@@ -734,6 +844,30 @@ mod tests {
         assert!(!env.request_id.is_empty());
         // request_id should be valid UUID v4
         assert!(uuid::Uuid::parse_str(&env.request_id).is_ok());
+    }
+
+    #[test]
+    fn borrowed_envelope_validates_without_materializing_payload() {
+        let raw = r#"{"type":"match.endpoint","version":"1.0","request_id":"request-1","timestamp":"2026-08-28T12:00:00Z","payload":{"room_id":"fb3a171c-82e7-4f27-a130-68cff7085737"}}"#;
+        let envelope = BorrowedEnvelope::parse(raw).expect("valid borrowed envelope");
+        assert_eq!(envelope.msg_type, "match.endpoint");
+        let payload: serde_json::Value = envelope.payload_as().expect("typed payload");
+        assert_eq!(payload["room_id"], "fb3a171c-82e7-4f27-a130-68cff7085737");
+    }
+
+    #[test]
+    fn borrowed_envelope_rejects_invalid_common_fields() {
+        let invalid_timestamp = r#"{"type":"ping","version":"1.0","request_id":"request-1","timestamp":"not-a-date","payload":{}}"#;
+        assert_eq!(
+            BorrowedEnvelope::parse(invalid_timestamp).unwrap_err(),
+            "invalid timestamp"
+        );
+
+        let whitespace_type = r#"{"type":"   ","version":"1.0","request_id":"request-1","timestamp":"2026-08-28T12:00:00Z","payload":{}}"#;
+        assert_eq!(
+            BorrowedEnvelope::parse(whitespace_type).unwrap_err(),
+            "invalid message type"
+        );
     }
 
     #[test]
