@@ -3,4 +3,4 @@
 /**
  * Non-sensitive producer metadata used to diagnose platform-specific alpha failures.
  */
-export type MatchReportClient = { platform: string, user_agent: string, };
+export type MatchReportClient = { platform: string; user_agent: string };

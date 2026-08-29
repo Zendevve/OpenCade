@@ -3,4 +3,9 @@
 /**
  * Server-authoritative launch barrier shared by both room participants.
  */
-export type LaunchBarrierPayload = { room_id: string, ready_count: number, required_count: number, launch_at: string | null, };
+export type LaunchBarrierPayload = {
+  room_id: string;
+  ready_count: number;
+  required_count: number;
+  launch_at: string | null;
+};

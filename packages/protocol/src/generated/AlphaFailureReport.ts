@@ -10,4 +10,15 @@ import type { NativeRouteCapability } from "./NativeRouteCapability";
 /**
  * Canonical redacted evidence for an alpha attempt that did not complete.
  */
-export type AlphaFailureReport = { schema_version: number, kind: AlphaEvidenceKind, exported_at: string, room: MatchReportRoom, role: MatchReportRole, stage: AlphaFailureStage, error_code: string, transport: MatchReportTransport | null, native_route?: NativeRouteCapability | null, client: MatchReportClient, };
+export type AlphaFailureReport = {
+  schema_version: number;
+  kind: AlphaEvidenceKind;
+  exported_at: string;
+  room: MatchReportRoom;
+  role: MatchReportRole;
+  stage: AlphaFailureStage;
+  error_code: string;
+  transport: MatchReportTransport | null;
+  native_route?: NativeRouteCapability | null;
+  client: MatchReportClient;
+};

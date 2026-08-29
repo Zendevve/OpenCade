@@ -4,4 +4,16 @@ import type { ReadinessBlockCount } from "./ReadinessBlockCount";
 /**
  * Rolling activation funnel. Small blocker cohorts are suppressed by the server.
  */
-export type ActivationSummaryPayload = { window_days: number, selected_sessions: number, ready_sessions: number, lobby_sessions: number, launch_attempted_sessions: number, launch_succeeded_sessions: number, readiness_blocked_events: number, selected_to_ready_rate: number, selected_to_lobby_rate: number, selected_to_launch_rate: number, blocked_by_check: Array<ReadinessBlockCount>, };
+export type ActivationSummaryPayload = {
+  window_days: number;
+  selected_sessions: number;
+  ready_sessions: number;
+  lobby_sessions: number;
+  launch_attempted_sessions: number;
+  launch_succeeded_sessions: number;
+  readiness_blocked_events: number;
+  selected_to_ready_rate: number;
+  selected_to_lobby_rate: number;
+  selected_to_launch_rate: number;
+  blocked_by_check: Array<ReadinessBlockCount>;
+};

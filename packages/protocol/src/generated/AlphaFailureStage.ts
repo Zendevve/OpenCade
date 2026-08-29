@@ -3,4 +3,11 @@
 /**
  * Stable stages for privacy-minimized evidence from an abandoned alpha attempt.
  */
-export type AlphaFailureStage = "endpoint_reservation" | "direct_udp" | "relay_ticket" | "relay" | "peer_transcript" | "room_transition" | "native_launch";
+export type AlphaFailureStage =
+  | "endpoint_reservation"
+  | "direct_udp"
+  | "relay_ticket"
+  | "relay"
+  | "peer_transcript"
+  | "room_transition"
+  | "native_launch";
