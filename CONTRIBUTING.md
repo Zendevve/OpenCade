@@ -27,7 +27,18 @@ Thank you for helping build an open, self-hostable alternative for arcade netpla
 
 OpenCade is Apache-2.0 and self-hosted by design. If you can't contribute code right now, you can still keep the hard systems work moving — NAT traversal, relay fallback, and the FBNeo netplay seam.
 
-**[☕ Support via Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)** — every coffee funds LAN test rigs, CI, and docs. No paywall, no premium: just open, auditable netplay.
+### ☕ Sponsor the Work — Why Sponsorship Matters
+
+OpenCade is, and always will be, **free software (Apache-2.0)** — no paywalls, no premium matchmaking, no telemetry resold to third parties. That's a promise. But "free as in beer" still costs real money to run:
+
+- **Physical test hardware** — multiple Windows boxes rented across different ISPs so we can run real two-machine cross-NAT regression tests before every release. Cloud VM emulators don't catch asymmetric route failures, ISP-side firewalls, or dual-stack quirks the way real hardware does.
+- **Public relay & STUN capacity** — keeping authenticated `opencade-relay` fallback nodes online 24/7 for players behind strict NATs that hole-punching can't penetrate.
+- **Continuous CI matrix** — multi-platform builds, `cargo clippy -D warnings`, sqlx compile-time checked queries, and binary integrity scans gate every PR.
+- **Emulator adapter R&D** — clean-room protocol research, deterministic frame-sync experiments, and the RetroArch native-process seam that protects you from arbitrary bundled code.
+
+👉 **[Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
+
+_Every contribution — one coffee or twenty — directly pays for the cables, machines, and hours that keep this stack open, audited, and free of ads. Thank you._
 
 ---
 
@@ -285,4 +296,12 @@ Draft PRs are welcome for early feedback — mark as `Draft` and note what is st
 
 Thank you for building OpenCade the right way — original code, open protocol, self-hostable infrastructure.
 
-P.S. If this project saved you time, consider buying the maintainers a coffee: **https://buymeacoffee.com/zendevve**
+---
+
+## ☕ One Last Ask
+
+If OpenCade has saved you a Saturday night of netplay, consider returning the favor:
+
+👉 **[Support OpenCade on Buy Me a Coffee — https://buymeacoffee.com/zendevve](https://buymeacoffee.com/zendevve)**
+
+100% of sponsor support goes to public infrastructure, test hardware, and the hours of maintenance it takes to keep an open alternative alive. No tiers, no perks, no paywalls — just people who care about open netplay keeping the lights on.
