@@ -1,8 +1,9 @@
 # RetroArch Proof-of-Play alpha
 
-This procedure tests the experimental native-process adapter from ADR 0003. It requires two real
-Windows machines and user-supplied emulator files. Never commit, upload, or attach emulator binaries,
-cores, BIOS files, or ROMs to OpenCade reports.
+This procedure tests the experimental native-process adapter from ADRs 0003 and 0006. It requires
+two real Windows machines and a user-supplied RetroArch executable. The alpha kit supplies an
+original, deterministic OpenCade test core and inert test content, so the primary Proof-of-Play does
+not require a ROM, BIOS, firmware, or third-party core.
 
 ## Get the alpha artifact
 
@@ -26,15 +27,22 @@ C:\OpenCadeAlpha\retroarch\
 ├── retroarch.exe
 ├── VERSION.txt                 # exact RetroArch version, one line
 ├── cores\
-│   └── fbneo_libretro.dll
+│   └── opencade_test_libretro.dll
 └── ROMs\
-    ├── neogeo.zip              # when required by the selected game
-    └── sfiii3.zip              # user-supplied content
+    └── opencade_test.ocade
 ```
 
-Use the same RetroArch version, FBNeo core, and exact content on both machines. OpenCade computes
-SHA-256 fingerprints locally and includes only those hashes—not paths or content—in an exported
-report.
+Install the checksummed fixture from the alpha-kit directory on both machines:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\OpenCade-Alpha.ps1 -Mode InstallTestFixture `
+  -RetroArchRoot "C:\OpenCadeAlpha\retroarch"
+```
+
+The installer refuses to overwrite a different file. Use the same RetroArch version and exact
+fixture on both machines. OpenCade computes SHA-256 fingerprints locally and includes only those
+hashes—not paths or content—in an exported report. FBNeo testing with user-supplied content remains
+an optional, separate compatibility campaign.
 
 ## Start the clients
 
@@ -56,19 +64,20 @@ public internet.
 
 ## Scenario
 
-1. Register two different OpenCade users and select the same game.
+1. Register two different OpenCade users and select **OpenCade Proof-of-Play Test**.
 2. Challenge and accept until both clients reach the match screen.
 3. Wait for `Direct UDP verified` with a same-LAN host candidate and matching 60-frame transcript
    checksums. Relay and reflexive routes are readiness-only and keep native launch disabled.
-4. Select **Launch playable alpha** on the host first, then on the guest.
-5. Confirm both clients display the same executable, core, and content hash prefixes.
-6. Confirm RetroArch establishes netplay and player two can provide gameplay input.
-7. End the session cleanly. Export one report from each OpenCade client after the native process has
+4. Connect one controller to each machine. Confirm host is assigned player 1 and guest player 2.
+5. Select **Launch playable alpha** on the host first, then on the guest.
+6. Confirm both clients display the same executable, core, and content hash prefixes.
+7. Confirm RetroArch establishes netplay and both colored player panels react to their controllers.
+8. End the session cleanly. Export one report from each OpenCade client after the native process has
    launched so the compatibility fingerprints are included.
-8. Run `opencade-match-verify --require-compatibility host.json guest.json`. Missing or mismatched
+9. Run `opencade-match-verify --require-compatibility host.json guest.json`. Missing or mismatched
    adapter fingerprints, transport, transcript, room, game, or roles must fail closed.
-9. If RetroArch launch fails, export failure evidence before leaving the match screen. The report
-   records `native_launch_failed`, but never the local launch error or path.
+10. If RetroArch launch fails, export failure evidence before leaving the match screen. The report
+    records `native_launch_failed`, but never the local launch error or path.
 
 ## Pass criteria
 

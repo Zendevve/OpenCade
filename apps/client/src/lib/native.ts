@@ -29,7 +29,7 @@ export type MatchProbeReport = {
 };
 export type RetroarchMatchLaunch = {
   pid: number;
-  adapter: "retroarch_fbneo";
+  adapter: "retroarch_fbneo" | "retroarch_test";
   room_id: string;
   fingerprint: {
     retroarch_version?: string | null;
@@ -37,9 +37,10 @@ export type RetroarchMatchLaunch = {
     core_sha256: string;
     content_sha256: string;
   };
+  native_route?: "direct_lan" | "tcp_tunnel";
 };
 export type RetroarchPreflight = {
-  adapter: "retroarch_fbneo";
+  adapter: "retroarch_fbneo" | "retroarch_test";
   emulator_version?: string | null;
   executable_sha256: string;
   core_sha256: string;

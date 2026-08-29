@@ -92,10 +92,10 @@ pub async fn register(
         validate_email(email)?;
     }
     let rate_key = format!("register:{}", request.username.trim().to_ascii_lowercase());
-    if !state.auth_rate_limiter.check(&rate_key)
-        || !state
-            .auth_rate_limiter
-            .check_with_limit("register-global", 30)
+    if !state
+        .auth_rate_limiter
+        .check_with_limit("register-global", 30)
+        || !state.auth_rate_limiter.check(&rate_key)
     {
         return Err(AppError::RateLimited(
             "too many account creation attempts; retry in one minute".into(),
@@ -176,10 +176,10 @@ pub async fn login(
         return Err(AppError::BadRequest("identifier must not be empty".into()));
     }
     let rate_key = format!("login:{}", request.identifier.trim().to_ascii_lowercase());
-    if !state.auth_rate_limiter.check(&rate_key)
-        || !state
-            .auth_rate_limiter
-            .check_with_limit("login-global", 120)
+    if !state
+        .auth_rate_limiter
+        .check_with_limit("login-global", 120)
+        || !state.auth_rate_limiter.check(&rate_key)
     {
         return Err(AppError::RateLimited(
             "too many sign-in attempts; retry in one minute".into(),

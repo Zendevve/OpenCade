@@ -7,14 +7,4 @@ import type { NatMappingState } from "./NatMappingState";
 /**
  * Deterministic transport evidence from one side of an alpha match.
  */
-export type MatchReportProbe = {
-  role: MatchReportRole;
-  transport: MatchReportTransport;
-  frames_sent: number;
-  frames_received: number;
-  transcript_checksum: string;
-  elapsed_ms: number;
-  nat: NatMappingState | null;
-  candidate: MatchCandidateKind | null;
-  punch_attempts: number | null;
-};
+export type MatchReportProbe = { role: MatchReportRole, transport: MatchReportTransport, frames_sent: number, frames_received: number, transcript_checksum: string, elapsed_ms: number, nat: NatMappingState | null, candidate: MatchCandidateKind | null, punch_attempts: number | null, };

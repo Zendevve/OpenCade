@@ -906,6 +906,17 @@ async fn change_room_state(
         .bind(room_id)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query("UPDATE matches SET ended_at = COALESCE(ended_at, now()) WHERE room_id = $1")
+            .bind(room_id)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "UPDATE match_runtime_participants
+             SET ended_at = COALESCE(ended_at, now()) WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .execute(&mut *transaction)
+        .await?;
     }
     sqlx::query(
         "INSERT INTO room_events (room_id, attempt_id, actor_id, event_type, payload)

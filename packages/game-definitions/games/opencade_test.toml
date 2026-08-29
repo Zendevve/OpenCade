@@ -1,0 +1,14 @@
+schema_version = 1
+id = "opencade_test"
+name = "OpenCade Proof-of-Play Test"
+emulator = "retroarch_test"
+
+[launch]
+args = ["-L", "opencade_test_libretro", "{rom}"]
+
+[validation]
+required_files = ["opencade_test.ocade"]
+
+[metadata]
+developer = "OpenCade Contributors"
+players = 2

@@ -1,6 +1,6 @@
 use opencade_server::{AppState, Config, build_app, lifecycle, shutdown_signal};
 use sqlx::postgres::PgPoolOptions;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -20,6 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pool = PgPoolOptions::new()
         .max_connections(10)
+        .acquire_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(10 * 60))
+        .max_lifetime(Duration::from_secs(30 * 60))
         .connect(&config.database_url)
         .await?;
 
@@ -35,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState::new(pool, config);
     lifecycle::spawn_reconciler(state.clone());
+    lifecycle::spawn_telemetry_retention(state.clone());
     axum::serve(listener, build_app(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;

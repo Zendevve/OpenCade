@@ -3,12 +3,14 @@ import type {
   AlphaFailureReport,
   Envelope,
   MatchPreflightPayload,
+  MatchReceiptPayload,
   MatchReport,
   ProductEventPayload,
   RoomInvitePayload,
   RoomPayload,
   RoomSnapshotPayload,
 } from "@opencade/protocol";
+import { isRoomSnapshot } from "./snapshot";
 
 export type User = { id: string; username: string; email?: string | null };
 export type AuthPayload = { user: User; token: string; expires_at: string };
@@ -79,7 +81,12 @@ export function getApiBase(): string {
   return apiBase;
 }
 
-async function request<T>(path: string, token?: string | null, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  token?: string | null,
+  init?: RequestInit,
+  decoder?: (value: unknown) => value is T
+): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Accept", "application/json");
   if (init?.body) headers.set("Content-Type", "application/json");
@@ -103,6 +110,13 @@ async function request<T>(path: string, token?: string | null, init?: RequestIni
   }
   if (!envelope || envelope.payload === undefined) {
     throw new ApiError(response.status, "invalid_response", "Server returned an invalid envelope");
+  }
+  if (decoder && !decoder(envelope.payload)) {
+    throw new ApiError(
+      response.status,
+      "invalid_response",
+      "Server returned an invalid response payload"
+    );
   }
   return envelope.payload as T;
 }
@@ -202,16 +216,32 @@ export const api = {
   joinInvite: (token: string, code: string) =>
     request<RoomPayload>("/api/v1/invites/join", token, post({ code })),
   submitPreflight: (token: string, roomId: string, payload: MatchPreflightPayload) =>
-    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/preflight`, token, post(payload)),
+    request<RoomSnapshotPayload>(
+      `/api/v1/rooms/${roomId}/preflight`,
+      token,
+      post(payload),
+      isRoomSnapshot
+    ),
   roomSnapshot: (token: string, roomId: string) =>
-    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/snapshot`, token),
+    request<RoomSnapshotPayload>(
+      `/api/v1/rooms/${roomId}/snapshot`,
+      token,
+      undefined,
+      isRoomSnapshot
+    ),
   readyToLaunch: (token: string, roomId: string) =>
-    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/ready`, token, post()),
+    request<RoomSnapshotPayload>(`/api/v1/rooms/${roomId}/ready`, token, post(), isRoomSnapshot),
   submitEvidence: (token: string, evidence: MatchReport | AlphaFailureReport) =>
     request<{ digest: string; duplicate: boolean }>(
       "/api/v1/alpha/evidence",
       token,
       post({ evidence })
+    ),
+  createMatchReceipt: (token: string, roomId: string, idempotencyKey: string) =>
+    request<MatchReceiptPayload>(
+      `/api/v1/rooms/${roomId}/receipt`,
+      token,
+      post({ idempotency_key: idempotencyKey })
     ),
   recordProductEvent: (token: string, event: ProductEventPayload) =>
     request<{ accepted: boolean; duplicate: boolean }>(

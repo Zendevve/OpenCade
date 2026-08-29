@@ -3,4 +3,4 @@
 /**
  * Short-lived room invite. Only the creator receives the secret code.
  */
-export type RoomInvitePayload = { room_id: string; code: string; expires_at: string };
+export type RoomInvitePayload = { room_id: string, code: string, expires_at: string, };

@@ -39,6 +39,8 @@ services:
       PUBLIC_RELAY_URL: ${PUBLIC_RELAY_URL:?set PUBLIC_RELAY_URL to the externally reachable wss relay URL}
       STUN_HOST: ${STUN_HOST:?set STUN_HOST to the externally reachable STUN host}
       RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
+      OPENCADE_EVIDENCE_TCP_TUNNEL: ${OPENCADE_EVIDENCE_TCP_TUNNEL:-false}
+      ROUTE_POLICY_MIN_ATTEMPTS: ${ROUTE_POLICY_MIN_ATTEMPTS:-10}
 
   opencade-server:
     build:
@@ -53,7 +55,7 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

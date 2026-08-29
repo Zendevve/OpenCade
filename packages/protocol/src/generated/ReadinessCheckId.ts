@@ -3,5 +3,4 @@
 /**
  * Stable readiness checks used for aggregate blocker analysis.
  */
-export type ReadinessCheckId =
-  "desktop" | "control_plane" | "game_runtime" | "native_port" | "network";
+export type ReadinessCheckId = "desktop" | "control_plane" | "game_runtime" | "native_port" | "network";

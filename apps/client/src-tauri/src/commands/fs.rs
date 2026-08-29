@@ -1,4 +1,5 @@
 use opencade_adapter_fbneo::FbneoAdapter;
+use opencade_adapter_retroarch::RetroarchAdapter;
 use opencade_emulator_sdk::EmulatorAdapter;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -37,8 +38,32 @@ pub fn scan_fbneo_rom(root: PathBuf, game_id: &str) -> Result<GameAvailability, 
 }
 
 #[tauri::command]
-pub fn scan_game(app: tauri::AppHandle, game_id: String) -> Result<GameAvailability, String> {
-    scan_fbneo_rom(super::process::fbneo_root(&app)?, &game_id)
+pub async fn scan_game(app: tauri::AppHandle, game_id: String) -> Result<GameAvailability, String> {
+    if game_id == opencade_adapter_retroarch::TEST_GAME_ID {
+        let root = super::process::retroarch_root(&app)?;
+        return tokio::task::spawn_blocking(move || {
+            let adapter = RetroarchAdapter::new(&root);
+            let content = root.join("ROMs").join("opencade_test.ocade");
+            match adapter.fingerprint_for_game(&game_id, &content) {
+                Ok(_) => Ok(GameAvailability {
+                    game_id,
+                    available: true,
+                    warnings: Vec::new(),
+                }),
+                Err(error) => Ok(GameAvailability {
+                    game_id,
+                    available: false,
+                    warnings: vec![error.to_string()],
+                }),
+            }
+        })
+        .await
+        .map_err(|error| format!("game scan worker failed: {error}"))?;
+    }
+    let root = super::process::fbneo_root(&app)?;
+    tokio::task::spawn_blocking(move || scan_fbneo_rom(root, &game_id))
+        .await
+        .map_err(|error| format!("game scan worker failed: {error}"))?
 }
 
 #[cfg(test)]

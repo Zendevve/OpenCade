@@ -22,6 +22,10 @@ pub enum ConfigError {
     UnsafeProductionStun,
     #[error("OPERATOR_TOKEN must contain at least 32 characters in production")]
     WeakOperatorToken,
+    #[error("ROUTE_POLICY_MIN_ATTEMPTS must be between 3 and 1000")]
+    InvalidRoutePolicyMinimum,
+    #[error("OPENCADE_EVIDENCE_TCP_TUNNEL requires relay configuration")]
+    EvidenceTunnelWithoutRelay,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -37,6 +41,8 @@ pub struct Config {
     pub relay_url: Option<String>,
     pub relay_secret: Option<String>,
     pub operator_token: String,
+    pub evidence_tcp_tunnel_enabled: bool,
+    pub route_policy_min_attempts: u32,
 }
 
 impl std::fmt::Debug for Config {
@@ -57,6 +63,11 @@ impl std::fmt::Debug for Config {
                 &self.relay_secret.as_ref().map(|_| "<redacted>"),
             )
             .field("operator_token", &"<redacted>")
+            .field(
+                "evidence_tcp_tunnel_enabled",
+                &self.evidence_tcp_tunnel_enabled,
+            )
+            .field("route_policy_min_attempts", &self.route_policy_min_attempts)
             .finish()
     }
 }
@@ -90,6 +101,13 @@ impl Config {
         if production && operator_token.len() < 32 {
             return Err(ConfigError::WeakOperatorToken);
         }
+        let evidence_tcp_tunnel_enabled = lookup("OPENCADE_EVIDENCE_TCP_TUNNEL")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+        let route_policy_min_attempts = lookup("ROUTE_POLICY_MIN_ATTEMPTS")
+            .map(|value| value.parse::<u32>().ok())
+            .unwrap_or(Some(10))
+            .filter(|value| (3..=1000).contains(value))
+            .ok_or(ConfigError::InvalidRoutePolicyMinimum)?;
 
         let allowed_origins = lookup("ALLOWED_ORIGINS")
             .unwrap_or_else(|| {
@@ -131,6 +149,9 @@ impl Config {
         {
             return Err(ConfigError::WeakRelaySecret);
         }
+        if evidence_tcp_tunnel_enabled && relay_url.is_none() {
+            return Err(ConfigError::EvidenceTunnelWithoutRelay);
+        }
         if production {
             let relay = relay_url
                 .as_deref()
@@ -155,6 +176,8 @@ impl Config {
             relay_url,
             relay_secret,
             operator_token,
+            evidence_tcp_tunnel_enabled,
+            route_policy_min_attempts,
         })
     }
 
@@ -171,6 +194,8 @@ impl Config {
             relay_url: None,
             relay_secret: None,
             operator_token: "test-operator-token-with-32-characters".into(),
+            evidence_tcp_tunnel_enabled: false,
+            route_policy_min_attempts: 10,
         }
     }
 }
@@ -235,6 +260,8 @@ mod tests {
         assert_eq!(config.stun_host, "stun.opencade.local");
         assert_eq!(config.stun_port, 3478);
         assert_eq!(config.relay_url, None);
+        assert!(!config.evidence_tcp_tunnel_enabled);
+        assert_eq!(config.route_policy_min_attempts, 10);
     }
 
     #[test]
@@ -262,6 +289,34 @@ mod tests {
         assert_eq!(
             load_config(&[("STUN_PORT", "0")]),
             Err(ConfigError::InvalidStunPort)
+        );
+    }
+
+    #[test]
+    fn parses_and_bounds_the_evidence_route_policy() {
+        let config = load_config(&[
+            ("OPENCADE_EVIDENCE_TCP_TUNNEL", "true"),
+            ("ROUTE_POLICY_MIN_ATTEMPTS", "25"),
+            ("RELAY_URL", "wss://relay.example.com/relay"),
+            (
+                "RELAY_AUTH_SECRET",
+                "route-policy-relay-secret-at-least-32-bytes",
+            ),
+        ])
+        .expect("valid route policy");
+        assert!(config.evidence_tcp_tunnel_enabled);
+        assert_eq!(config.route_policy_min_attempts, 25);
+        assert_eq!(
+            load_config(&[("OPENCADE_EVIDENCE_TCP_TUNNEL", "true")]),
+            Err(ConfigError::EvidenceTunnelWithoutRelay)
+        );
+        assert_eq!(
+            load_config(&[("ROUTE_POLICY_MIN_ATTEMPTS", "2")]),
+            Err(ConfigError::InvalidRoutePolicyMinimum)
+        );
+        assert_eq!(
+            load_config(&[("ROUTE_POLICY_MIN_ATTEMPTS", "many")]),
+            Err(ConfigError::InvalidRoutePolicyMinimum)
         );
     }
 

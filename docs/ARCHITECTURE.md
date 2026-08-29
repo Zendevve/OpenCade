@@ -303,7 +303,7 @@ Consequences:
   and `opencade-relay` on `8081`; peers still prefer direct UDP.
 - No Redis, no separate signaling service, and no message queue in MVP. Presence remains in the
   control plane. Readiness frames use the probe capability; an isolated, bounded native TCP tunnel
-  capability exists but remains route-policy gated pending physical validation.
+  capability exists and remains fail-closed behind ADR 0006's operator-plus-evidence route policy.
 - The relay accepts only short-lived room-member tickets issued by the control plane and limits
   rooms to two users and bounded frames. Capability-scoped tickets keep readiness probes isolated
   from the experimental native TCP tunnel described in ADR 0005.
@@ -675,7 +675,8 @@ whose payload room matches the signed room; bounded binary probe frames remain o
 
 Probe tickets carry only OpenCade readiness frames. Native-tunnel tickets use a separate signed
 capability and bounded TCP-over-WebSocket framing; the match coordinator does not select that route
-until ADR 0005's physical validation gate passes. The relay is not TURN.
+unless ADR 0006's operator flag, minimum physical-attempt count, and 80% verified-pair gate all
+pass. The default route remains direct LAN. The relay is not TURN.
 
 ### 10.4 Latency — RTT / loss / jitter
 

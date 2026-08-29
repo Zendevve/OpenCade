@@ -4,10 +4,14 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use opencade_networking::summarize_campaign_evidence;
-use opencade_protocol::{AlphaFailureReport, Envelope, MatchReport, MatchReportRole};
+use opencade_protocol::{
+    AlphaFailureReport, Envelope, MatchReport, MatchReportRole, NativeRouteCapability,
+    PublicCompatibilityCohort, PublicCompatibilityPayload,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{authn::AuthUser, error::AppError, state::AppState};
@@ -38,10 +42,25 @@ pub async fn submit_evidence(
     }
     let encoded = serde_json::to_vec(&canonical)
         .map_err(|_| AppError::BadRequest("evidence is invalid".into()))?;
-    let expected_role = member_role(&state, room_id, user.id).await?;
-    if role != expected_role {
+    let context = evidence_room_context(&state, room_id, user.id).await?;
+    if role != context.role {
         return Err(AppError::Forbidden(
             "evidence role does not match room membership".into(),
+        ));
+    }
+    if canonical
+        .get("room")
+        .and_then(|room| room.get("game_id"))
+        .and_then(Value::as_str)
+        != Some(context.game_id.as_str())
+    {
+        return Err(AppError::BadRequest(
+            "evidence game does not match the authoritative room".into(),
+        ));
+    }
+    if kind == "match" && context.state != "FINISHED" {
+        return Err(AppError::Conflict(
+            "successful match evidence requires an authoritative finished room".into(),
         ));
     }
     let digest = hex::encode(Sha256::digest(&encoded));
@@ -119,6 +138,104 @@ pub async fn campaign_summary(
     Ok(Json(Envelope::new("alpha.campaign.summary", summary)))
 }
 
+pub async fn public_compatibility(
+    State(state): State<AppState>,
+) -> Result<Json<Envelope<Value>>, AppError> {
+    const MINIMUM_COHORT_SIZE: i64 = 3;
+    const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+    let mut cache = state.public_compatibility_cache.write().await;
+    if let Some((created_at, payload)) = cache.as_ref()
+        && created_at.elapsed() < CACHE_TTL
+    {
+        return Ok(Json(Envelope::new(
+            "public.compatibility.summary",
+            json!(payload),
+        )));
+    }
+    let rows = sqlx::query(
+        "WITH room_status AS (
+             SELECT room_id,
+                    COUNT(*) FILTER (WHERE kind = 'match') AS match_reports,
+                    COUNT(*) FILTER (WHERE kind = 'attempt_failure') AS failures,
+                    COUNT(DISTINCT payload->'compatibility')
+                        FILTER (WHERE kind = 'match') AS compatibility_sets,
+                    COUNT(DISTINCT payload->>'native_route')
+                        FILTER (WHERE kind = 'match') AS route_sets,
+                    COUNT(DISTINCT role) FILTER (WHERE kind = 'match') AS role_sets,
+                    COUNT(DISTINCT payload->'probe'->>'transcript_checksum')
+                        FILTER (WHERE kind = 'match') AS transcript_sets,
+                    COUNT(*) FILTER (
+                        WHERE kind = 'match'
+                          AND payload->'probe'->>'frames_received' = '60'
+                          AND payload->'room'->>'state' = 'finished'
+                    ) AS complete_reports
+             FROM alpha_evidence
+             GROUP BY room_id
+         ), samples AS (
+             SELECT DISTINCT evidence.room_id,
+                    evidence.payload->'room'->>'game_id' AS game_id,
+                    evidence.payload->'client'->>'platform' AS platform,
+                    evidence.payload->'compatibility'->>'adapter' AS adapter,
+                    evidence.payload->'compatibility'->>'emulator_version' AS emulator_version,
+                    evidence.payload->'probe'->>'transport' AS transport,
+                    evidence.payload->>'native_route' AS native_route,
+                    status.match_reports = 2 AND status.failures = 0
+                        AND status.compatibility_sets = 1 AND status.route_sets = 1
+                        AND status.role_sets = 2 AND status.transcript_sets = 1
+                        AND status.complete_reports = 2 AS verified
+             FROM alpha_evidence AS evidence
+             JOIN room_status AS status USING (room_id)
+             WHERE evidence.kind = 'match'
+               AND evidence.payload ? 'compatibility'
+               AND evidence.payload ? 'native_route'
+         )
+         SELECT game_id, platform, adapter, emulator_version, transport, native_route,
+                COUNT(DISTINCT room_id) AS attempts,
+                COUNT(DISTINCT room_id) FILTER (WHERE verified) AS verified
+         FROM samples
+         WHERE game_id IS NOT NULL AND platform IS NOT NULL AND adapter IS NOT NULL
+           AND transport IS NOT NULL AND native_route IN ('direct_lan', 'tcp_tunnel')
+         GROUP BY game_id, platform, adapter, emulator_version, transport, native_route
+         HAVING COUNT(DISTINCT room_id) >= $1
+         ORDER BY game_id, platform, adapter, emulator_version, transport, native_route
+         LIMIT 500",
+    )
+    .bind(MINIMUM_COHORT_SIZE)
+    .fetch_all(&state.pool)
+    .await?;
+    let cohorts = rows
+        .into_iter()
+        .map(|row| -> Result<PublicCompatibilityCohort, AppError> {
+            let route: String = row.try_get("native_route")?;
+            Ok(PublicCompatibilityCohort {
+                game_id: row.try_get("game_id")?,
+                platform: row.try_get("platform")?,
+                adapter: row.try_get("adapter")?,
+                emulator_version: row.try_get("emulator_version")?,
+                transport: row.try_get("transport")?,
+                native_route: match route.as_str() {
+                    "direct_lan" => NativeRouteCapability::DirectLan,
+                    "tcp_tunnel" => NativeRouteCapability::TcpTunnel,
+                    _ => return Err(AppError::Internal("invalid native route aggregate".into())),
+                },
+                attempts: u32::try_from(row.try_get::<i64, _>("attempts")?).unwrap_or(u32::MAX),
+                verified: u32::try_from(row.try_get::<i64, _>("verified")?).unwrap_or(u32::MAX),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let payload = PublicCompatibilityPayload {
+        schema_version: 1,
+        generated_at: chrono::Utc::now(),
+        minimum_cohort_size: u8::try_from(MINIMUM_COHORT_SIZE).unwrap_or(u8::MAX),
+        cohorts,
+    };
+    *cache = Some((std::time::Instant::now(), payload.clone()));
+    Ok(Json(Envelope::new(
+        "public.compatibility.summary",
+        json!(payload),
+    )))
+}
+
 fn decode_evidence(
     value: &Value,
 ) -> Result<(Uuid, MatchReportRole, &'static str, Value), AppError> {
@@ -173,13 +290,19 @@ async fn reject_conflicting_duplicate(
     Ok(())
 }
 
-async fn member_role(
+struct EvidenceRoomContext {
+    role: MatchReportRole,
+    game_id: String,
+    state: String,
+}
+
+async fn evidence_room_context(
     state: &AppState,
     room_id: Uuid,
     user_id: Uuid,
-) -> Result<MatchReportRole, AppError> {
-    let host = sqlx::query_scalar::<_, Uuid>(
-        "SELECT rooms.host_user_id FROM rooms
+) -> Result<EvidenceRoomContext, AppError> {
+    let row = sqlx::query(
+        "SELECT rooms.host_user_id, rooms.game_id, rooms.state FROM rooms
          JOIN room_members ON room_members.room_id = rooms.id
          WHERE rooms.id = $1 AND room_members.user_id = $2",
     )
@@ -188,10 +311,15 @@ async fn member_role(
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::Forbidden("not a room member".into()))?;
-    Ok(if host == user_id {
-        MatchReportRole::Host
-    } else {
-        MatchReportRole::Guest
+    let host: Uuid = row.try_get("host_user_id")?;
+    Ok(EvidenceRoomContext {
+        role: if host == user_id {
+            MatchReportRole::Host
+        } else {
+            MatchReportRole::Guest
+        },
+        game_id: row.try_get("game_id")?,
+        state: row.try_get("state")?,
     })
 }
 

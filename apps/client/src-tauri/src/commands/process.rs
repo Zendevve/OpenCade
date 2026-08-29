@@ -25,7 +25,7 @@ pub fn fbneo_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "application resource directory is unavailable".into())
 }
 
-fn retroarch_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn retroarch_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     if let Some(root) = std::env::var_os("OPENCADE_RETROARCH_ROOT") {
         let root = PathBuf::from(root);
         if !root.is_absolute() {
@@ -104,16 +104,17 @@ pub async fn retroarch_preflight(
     validate_game_id(&game_id)?;
     let root = retroarch_root(&app)?;
     let adapter = RetroarchAdapter::new(&root);
-    let rom = root.join("ROMs").join(format!("{game_id}.zip"));
-    let fingerprint = tokio::task::spawn_blocking(move || adapter.fingerprint(&rom))
-        .await
-        .map_err(|_| "compatibility preflight worker failed".to_string())?
-        .map_err(|error| error.to_string())?;
+    let content = content_path(&root, &game_id);
+    let adapter_id = adapter.adapter_id_for_game(&game_id);
+    let fingerprint =
+        tokio::task::spawn_blocking(move || adapter.fingerprint_for_game(&game_id, &content))
+            .await
+            .map_err(|_| "compatibility preflight worker failed".to_string())?
+            .map_err(|error| error.to_string())?;
     let native_port_available =
-        ensure_native_port_available("0.0.0.0:55435".parse().expect("static socket address"))
-            .is_ok();
+        ensure_native_port_available(std::net::SocketAddr::from(([0, 0, 0, 0], 55_435))).is_ok();
     Ok(RetroarchPreflight {
-        adapter: "retroarch_fbneo",
+        adapter: adapter_id,
         emulator_version: fingerprint.retroarch_version,
         executable_sha256: fingerprint.executable_sha256,
         core_sha256: fingerprint.core_sha256,
@@ -168,9 +169,9 @@ pub async fn launch_retroarch_match(
     validate_game_id(&authorized.game_id)?;
     let root = retroarch_root(&app)?;
     let adapter = RetroarchAdapter::new(&root);
-    let rom = root
-        .join("ROMs")
-        .join(format!("{}.zip", authorized.game_id));
+    let game_id = authorized.game_id.clone();
+    let content = content_path(&root, &game_id);
+    let adapter_id = adapter.adapter_id_for_game(&game_id);
     let descriptor = MatchDescriptor {
         room_id: authorized.room_id.clone(),
         game_id: authorized.game_id,
@@ -190,8 +191,8 @@ pub async fn launch_retroarch_match(
         ensure_native_port_available(descriptor.local_endpoint)?;
     }
     let (fingerprint, child) = tokio::task::spawn_blocking(move || {
-        let fingerprint = adapter.fingerprint(&rom)?;
-        let child = adapter.launch_match(&rom, &descriptor)?;
+        let fingerprint = adapter.fingerprint_for_game(&game_id, &content)?;
+        let child = adapter.launch_match_for_game(&game_id, &content, &descriptor)?;
         Ok::<_, opencade_emulator_sdk::AdapterError>((fingerprint, child))
     })
     .await
@@ -206,10 +207,19 @@ pub async fn launch_retroarch_match(
     let pid = register_child(&app, &state, child, Some(callback))?;
     Ok(RetroarchMatchLaunch {
         pid,
-        adapter: "retroarch_fbneo",
+        adapter: adapter_id,
         room_id,
         fingerprint,
     })
+}
+
+fn content_path(root: &std::path::Path, game_id: &str) -> PathBuf {
+    let extension = if game_id == opencade_adapter_retroarch::TEST_GAME_ID {
+        "ocade"
+    } else {
+        "zip"
+    };
+    root.join("ROMs").join(format!("{game_id}.{extension}"))
 }
 
 #[tauri::command]

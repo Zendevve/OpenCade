@@ -5,6 +5,10 @@ use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
 
+const RECONCILE_BATCH_SIZE: i64 = 250;
+const TELEMETRY_RETENTION_DAYS: i32 = 90;
+const TELEMETRY_RETENTION_BATCH_SIZE: i64 = 1_000;
+
 /// Starts the authoritative deadline reconciler. Database row locks make the
 /// operation safe when several server replicas run it concurrently.
 pub fn spawn_reconciler(state: AppState) {
@@ -20,12 +24,58 @@ pub fn spawn_reconciler(state: AppState) {
     });
 }
 
+/// Removes expired raw telemetry outside request handling. Each pass is bounded
+/// so retention cannot monopolize the database during a large backlog.
+pub fn spawn_telemetry_retention(state: AppState) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let result = reconcile_telemetry_retention(&state).await;
+            match result {
+                Ok(removed) if removed > 0 => {
+                    tracing::info!(removed, "expired telemetry removed");
+                }
+                Ok(_) => {}
+                Err(error) => tracing::error!(%error, "telemetry retention failed"),
+            }
+        }
+    });
+}
+
+pub async fn reconcile_telemetry_retention(state: &AppState) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM product_events
+         WHERE event_id IN (
+             SELECT event_id FROM product_events
+             WHERE received_at < now() - make_interval(days => $1)
+             ORDER BY received_at
+             LIMIT $2
+         )",
+    )
+    .bind(TELEMETRY_RETENTION_DAYS)
+    .bind(TELEMETRY_RETENTION_BATCH_SIZE)
+    .execute(&state.pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 pub async fn reconcile_expired(state: &AppState) -> Result<u64, AppError> {
     let mut transaction = state.pool.begin().await?;
     sqlx::query(
-        "UPDATE challenges SET state = 'EXPIRED'
-         WHERE state = 'PENDING' AND expires_at <= now()",
+        "WITH expired_challenges AS (
+             SELECT id FROM challenges
+             WHERE state = 'PENDING' AND expires_at <= now()
+             ORDER BY expires_at
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED
+         )
+         UPDATE challenges AS challenge SET state = 'EXPIRED'
+         FROM expired_challenges
+         WHERE challenge.id = expired_challenges.id",
     )
+    .bind(RECONCILE_BATCH_SIZE)
     .execute(&mut *transaction)
     .await?;
 
@@ -35,6 +85,7 @@ pub async fn reconcile_expired(state: &AppState) -> Result<u64, AppError> {
              WHERE state IN ('WAITING', 'CHALLENGING', 'CONNECTING', 'PLAYING')
                AND state_deadline_at <= now()
              ORDER BY state_deadline_at
+             LIMIT $2
              FOR UPDATE SKIP LOCKED
          ), updated_rooms AS (
              UPDATE rooms AS room
@@ -51,12 +102,20 @@ pub async fn reconcile_expired(state: &AppState) -> Result<u64, AppError> {
              UPDATE challenges AS challenge SET state = 'EXPIRED'
              FROM expired
              WHERE challenge.room_id = expired.id AND challenge.state = 'PENDING'
+         ), updated_matches AS (
+             UPDATE matches AS matched SET ended_at = COALESCE(matched.ended_at, now())
+             FROM expired WHERE matched.room_id = expired.id
+         ), updated_runtime AS (
+             UPDATE match_runtime_participants AS participant
+             SET ended_at = COALESCE(participant.ended_at, now())
+             FROM expired WHERE participant.room_id = expired.id
          )
          INSERT INTO room_events (room_id, attempt_id, event_type, payload)
          SELECT id, attempt_id, 'room.deadline.expired', $1 FROM updated_rooms
          RETURNING room_id",
     )
     .bind(json!({ "failure_code": "state_deadline_exceeded" }))
+    .bind(RECONCILE_BATCH_SIZE)
     .fetch_all(&mut *transaction)
     .await?;
     transaction.commit().await?;

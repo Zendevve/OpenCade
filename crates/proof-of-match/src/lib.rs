@@ -330,6 +330,7 @@ fn build_report(
         // (FBNeo / RetroArch) go through `verify_playable_match_reports` instead, which
         // requires `Some(_)` on both sides.
         compatibility: None,
+        native_route: None,
     }
 }
 

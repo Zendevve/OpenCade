@@ -6,6 +6,7 @@ pub mod health;
 pub mod lifecycle;
 pub mod metrics;
 pub mod room_state;
+pub mod route_policy;
 pub mod routes;
 pub mod state;
 pub mod ws;
@@ -77,12 +78,20 @@ pub fn build_app(state: AppState) -> Router {
             post(routes::alpha::ready_to_launch),
         )
         .route(
+            "/api/v1/rooms/{id}/receipt",
+            post(routes::alpha::create_match_receipt),
+        )
+        .route(
             "/api/v1/alpha/evidence",
             post(routes::alpha_evidence::submit_evidence),
         )
         .route(
             "/api/v1/alpha/campaign",
             get(routes::alpha_evidence::campaign_summary),
+        )
+        .route(
+            "/api/v1/public/compatibility",
+            get(routes::alpha_evidence::public_compatibility),
         )
         .route(
             "/api/v1/telemetry/events",

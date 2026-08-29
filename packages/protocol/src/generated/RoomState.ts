@@ -6,5 +6,4 @@
  * AGENTS.md describes WAITING→CHALLENGING→CONNECTING→PLAYING→FINISHED|CANCELLED.
  * Rust payload is snake_case lowercase for the wire; `Ready` is kept for compat with ARCH's READY.
  */
-export type RoomState =
-  "waiting" | "ready" | "challenging" | "connecting" | "playing" | "finished" | "cancelled";
+export type RoomState = "waiting" | "ready" | "challenging" | "connecting" | "playing" | "finished" | "cancelled";

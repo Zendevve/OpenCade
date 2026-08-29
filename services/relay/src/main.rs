@@ -10,8 +10,10 @@ use axum::{
 };
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
+use opencade_protocol::{BorrowedEnvelope, is_supported_version};
 use opencade_shared::{RelayCapability, RelayTicket};
-use serde_json::{Value, json};
+use serde::Deserialize;
+use serde_json::json;
 use std::{
     env,
     net::SocketAddr,
@@ -23,7 +25,11 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
-use opencade_protocol::{Envelope, is_supported_version};
+#[derive(Deserialize)]
+struct RelayPayloadRef<'a> {
+    #[serde(borrow)]
+    room_id: &'a str,
+}
 
 #[derive(Clone)]
 struct Config {
@@ -90,6 +96,25 @@ fn build_relay_app(state: SharedState) -> Router {
         .with_state(state)
 }
 
+fn spawn_ticket_cleanup(state: SharedState) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .and_then(|duration| i64::try_from(duration.as_secs()).ok());
+            if let Some(now) = now {
+                state
+                    .used_tickets
+                    .retain(|_, expires_at| *expires_at >= now);
+            }
+        }
+    });
+}
+
 fn init_tracing(rust_log: &str) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(rust_log));
     let is_prod = env::var("OPENCADE_ENV")
@@ -140,9 +165,6 @@ async fn relay_ws_handler(
     {
         return (StatusCode::UNAUTHORIZED, "invalid or expired relay ticket").into_response();
     }
-    state
-        .used_tickets
-        .retain(|_, expires_at| *expires_at >= now);
     if state
         .used_tickets
         .insert(ticket.nonce, ticket.expires_at)
@@ -255,22 +277,21 @@ async fn handle_socket(
         match result {
             Ok(msg) => match msg {
                 Message::Text(text) => {
-                    let text_str = text.to_string();
                     if exceeds_rate_limit(
                         &mut window_started,
                         &mut window_messages,
                         &mut window_bytes,
-                        text_str.len(),
+                        text.len(),
                     ) {
                         warn!(peer_id = %id, room_id = %room_id, "relay rate limit exceeded");
                         break;
                     }
-                    if text_str.len() > 64 * 1024 {
+                    if text.len() > 64 * 1024 {
                         warn!(peer_id = %id, room_id = %room_id, "oversized relay text rejected");
                         continue;
                     }
-                    if let Ok(envelope) = serde_json::from_str::<Envelope<Value>>(&text_str) {
-                        if !is_supported_version(&envelope.version) {
+                    if let Ok(envelope) = serde_json::from_str::<BorrowedEnvelope<'_>>(&text) {
+                        if !is_supported_version(envelope.version) {
                             warn!(peer_id = %id, version = %envelope.version, "unsupported version");
                             let err = json!({
                                 "type": "error",
@@ -293,9 +314,8 @@ async fn handle_socket(
                             continue;
                         }
                         let envelope_room = envelope
-                            .payload
-                            .get("room_id")
-                            .and_then(|v| v.as_str())
+                            .payload_as::<RelayPayloadRef<'_>>()
+                            .map(|payload| payload.room_id)
                             .unwrap_or_default();
                         if envelope_room != room_id {
                             warn!(peer_id = %id, room_id = %room_id, "cross-room relay rejected");
@@ -355,15 +375,7 @@ async fn handle_socket(
     {
         room.remove(&user_id);
     }
-    let empty_rooms: Vec<String> = state
-        .rooms
-        .iter()
-        .filter(|e| e.is_empty())
-        .map(|e| e.key().clone())
-        .collect();
-    for room_id in empty_rooms {
-        state.rooms.remove(&room_id);
-    }
+    state.rooms.remove_if(&room_key, |_, room| room.is_empty());
 
     send_task.abort();
     info!(peer_id = %id, "relay peer disconnected");
@@ -425,6 +437,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         used_tickets: DashMap::new(),
     });
 
+    spawn_ticket_cleanup(Arc::clone(&state));
     let app = build_relay_app(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));

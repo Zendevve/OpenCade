@@ -26,6 +26,7 @@ regex = "1.13.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
 dashmap = "6.2.1"
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 thiserror = "2.0.20"
 url = "2.5.8"
 opencade-protocol = { path = "../../packages/protocol" }
@@ -33,5 +34,4 @@ opencade-shared = { path = "../../packages/shared" }
 opencade-networking = { path = "../../packages/networking" }
 
 [dev-dependencies]
-futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = "0.30.0"

@@ -4,4 +4,4 @@ import type { RoomState } from "./RoomState";
 /**
  * Privacy-minimized room correlation included in an alpha report.
  */
-export type MatchReportRoom = { id: string; game_id: string; state: RoomState };
+export type MatchReportRoom = { id: string, game_id: string, state: RoomState, };

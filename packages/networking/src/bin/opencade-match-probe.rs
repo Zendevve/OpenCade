@@ -133,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             user_agent: format!("opencade-match-probe/{}", env!("CARGO_PKG_VERSION")),
         },
         compatibility: None,
+        native_route: None,
     };
     println!("{}", serde_json::to_string(&report)?);
     Ok(())

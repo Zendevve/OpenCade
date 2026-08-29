@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Package", "Verify", "Doctor", "Launch")]
+    [ValidateSet("Package", "Verify", "InstallTestFixture", "Doctor", "Launch")]
     [string]$Mode = "Doctor",
     [string]$KitRoot = ".",
     [string]$ApiUrl,
@@ -16,6 +16,8 @@ $requiredKitFiles = @(
     "opencade-match-probe.exe",
     "opencade-match-verify.exe",
     "opencade-alpha-summary.exe",
+    "opencade_test_libretro.dll",
+    "opencade_test.ocade",
     "OpenCade-Alpha.ps1",
     "README.txt",
     "RETROARCH_TEST.md",
@@ -53,6 +55,8 @@ function Package-Kit {
         "opencade-match-probe.exe" = "target\release\opencade-match-probe.exe"
         "opencade-match-verify.exe" = "target\release\opencade-match-verify.exe"
         "opencade-alpha-summary.exe" = "target\release\opencade-alpha-summary.exe"
+        "opencade_test_libretro.dll" = "fixtures\libretro\opencade-test-core\build\opencade_test_libretro.dll"
+        "opencade_test.ocade" = "fixtures\libretro\opencade-test-core\opencade_test.ocade"
         "OpenCade-Alpha.ps1" = "scripts\alpha\OpenCade-Alpha.ps1"
         "README.txt" = "scripts\alpha\README.txt"
         "RETROARCH_TEST.md" = "docs\alpha\RETROARCH_TEST.md"
@@ -159,7 +163,7 @@ function Invoke-Doctor {
         throw "-RetroArchRoot is required for Doctor and Launch modes"
     }
     $retroRoot = (Resolve-Path -LiteralPath $RetroArchRoot).Path
-    foreach ($relativePath in @("retroarch.exe", "cores\fbneo_libretro.dll", "VERSION.txt", "ROMs")) {
+    foreach ($relativePath in @("retroarch.exe", "cores\opencade_test_libretro.dll", "VERSION.txt", "ROMs\opencade_test.ocade")) {
         if (-not (Test-Path -LiteralPath (Join-Path $retroRoot $relativePath))) {
             throw "RetroArch layout is incomplete: $relativePath is missing"
         }
@@ -177,6 +181,36 @@ function Invoke-Doctor {
     Write-Host "Alpha doctor passed. Reports directory: $reports"
 }
 
+function Install-TestFixture {
+    param([string]$Root)
+
+    Verify-Kit -Root $Root
+    if ([string]::IsNullOrWhiteSpace($RetroArchRoot)) {
+        throw "-RetroArchRoot is required for InstallTestFixture mode"
+    }
+    $retroRoot = (Resolve-Path -LiteralPath $RetroArchRoot).Path
+    $destinations = @{
+        "opencade_test_libretro.dll" = "cores\opencade_test_libretro.dll"
+        "opencade_test.ocade" = "ROMs\opencade_test.ocade"
+    }
+    foreach ($sourceName in $destinations.Keys) {
+        $source = Join-Path $Root $sourceName
+        $destination = Join-Path $retroRoot $destinations[$sourceName]
+        $parent = Split-Path -Parent $destination
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        if (Test-Path -LiteralPath $destination -PathType Leaf) {
+            $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
+            $destinationHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash
+            if ($sourceHash -ne $destinationHash) {
+                throw "A different $sourceName already exists. Remove it explicitly before installing the verified fixture."
+            }
+            continue
+        }
+        Copy-Item -LiteralPath $source -Destination $destination
+    }
+    Write-Host "Installed the verified OpenCade test fixture below $retroRoot"
+}
+
 $resolvedKitRoot = Resolve-KitRoot -Path $KitRoot
 
 switch ($Mode) {
@@ -186,6 +220,9 @@ switch ($Mode) {
     }
     "Verify" {
         Verify-Kit -Root $resolvedKitRoot
+    }
+    "InstallTestFixture" {
+        Install-TestFixture -Root $resolvedKitRoot
     }
     "Doctor" {
         Invoke-Doctor -Root $resolvedKitRoot

@@ -5,13 +5,20 @@ OpenCade separates schema migration from application startup. Production configu
 ## Deploy and rollback
 
 1. Back up the database with `DATABASE_URL=... BACKUP_PATH=... scripts/db/backup.sh`.
-2. Pull immutable images for the intended release tag; never deploy `latest`.
+2. Build server and relay images from the audited release tag and pin their resulting digests.
+   The current release workflow publishes a signed Windows kit but does not yet publish container
+   images; never deploy `latest` or imply registry artifacts exist.
 3. Run `opencade-server --migrate` as a one-shot job. Migrations must complete before new server replicas start.
 4. Start relay, then server. Check `/health`, `/ready`, and the authenticated `/metrics` endpoint.
 5. Exercise register/login, create/accept/cancel room, and a relay-ticket connection.
 6. Roll application images back to the prior tag when the schema remains backward compatible. For an incompatible schema, stop writes and restore into a new, empty database using the procedure below; do not mutate the failed database in place.
 
 Docker Compose implements steps 3–4 with the `migrate` service and `service_completed_successfully` dependency.
+
+Before tagging, classify every migration as backward compatible or incompatible, record its tested
+upgrade duration and lock budget, and state whether application rollback is safe. The current local
+Compose topology uses one database owner for migration and runtime; distinct least-privilege roles
+remain a production release requirement.
 
 ## Backup and restore drill
 
@@ -37,6 +44,12 @@ Run this drill before the first public release and quarterly afterward. Record a
 ## Monitoring and incidents
 
 Scrape `GET /metrics` with `x-operator-token: $OPERATOR_TOKEN`. Alert on 5xx responses, readiness failure, server/relay restart loops, active WebSocket collapse, and match-attempt deadline expirations. Campaign and activation aggregates require both a user bearer token and the operator token.
+
+The current duration metric is cumulative and cannot prove the p95 latency target. Do not derive a
+p95 from it; add route-level histogram buckets before enforcing latency SLOs. The server pool is
+bounded to 10 connections with a 5-second acquisition timeout, and the public compatibility
+aggregate is cached per process for 30 seconds. Those are implementation defaults, not horizontal
+scaling guarantees.
 
 Use `scripts/ops/decision-summary.sh` with `OPENCADE_API_URL`, `SESSION_TOKEN`, and `OPERATOR_TOKEN` to retrieve the bounded campaign cohort and privacy-thresholded activation funnel. Treat a low cohort as insufficient evidence, not as zero demand; launch conversion is reported separately from readiness and lobby conversion.
 

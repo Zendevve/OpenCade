@@ -3,10 +3,4 @@
 /**
  * Product-funnel events accepted by the privacy-minimized telemetry endpoint.
  */
-export type ProductEventName =
-  | "game_selected"
-  | "readiness_completed"
-  | "readiness_blocked"
-  | "lobby_entered"
-  | "launch_attempted"
-  | "launch_succeeded";
+export type ProductEventName = "game_selected" | "readiness_completed" | "readiness_blocked" | "lobby_entered" | "launch_attempted" | "launch_succeeded";

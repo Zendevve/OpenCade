@@ -27,6 +27,52 @@ const FBNEO_CORE: &str = "fbneo_libretro.dylib";
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 const FBNEO_CORE: &str = "fbneo_libretro.so";
 
+#[cfg(target_os = "windows")]
+const TEST_CORE: &str = "opencade_test_libretro.dll";
+#[cfg(target_os = "macos")]
+const TEST_CORE: &str = "opencade_test_libretro.dylib";
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+const TEST_CORE: &str = "opencade_test_libretro.so";
+
+pub const TEST_GAME_ID: &str = "opencade_test";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreProfile {
+    Fbneo,
+    OpenCadeTest,
+}
+
+impl CoreProfile {
+    fn for_game(game_id: &str) -> Self {
+        if game_id == TEST_GAME_ID {
+            Self::OpenCadeTest
+        } else {
+            Self::Fbneo
+        }
+    }
+
+    fn core_name(self) -> &'static str {
+        match self {
+            Self::Fbneo => FBNEO_CORE,
+            Self::OpenCadeTest => TEST_CORE,
+        }
+    }
+
+    fn adapter_id(self) -> &'static str {
+        match self {
+            Self::Fbneo => "retroarch_fbneo",
+            Self::OpenCadeTest => "retroarch_test",
+        }
+    }
+
+    fn content_extension(self) -> &'static str {
+        match self {
+            Self::Fbneo => "zip",
+            Self::OpenCadeTest => "ocade",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CompatibilityFingerprint {
     pub retroarch_version: Option<String>,
@@ -55,8 +101,8 @@ impl RetroarchAdapter {
         self.install_root.join(EXECUTABLE)
     }
 
-    fn core(&self) -> PathBuf {
-        self.install_root.join("cores").join(FBNEO_CORE)
+    fn core(&self, profile: CoreProfile) -> PathBuf {
+        self.install_root.join("cores").join(profile.core_name())
     }
 
     fn installed_version(&self) -> Option<String> {
@@ -67,15 +113,28 @@ impl RetroarchAdapter {
     }
 
     pub fn fingerprint(&self, rom_path: &Path) -> Result<CompatibilityFingerprint, AdapterError> {
+        self.fingerprint_for_game("fbneo", rom_path)
+    }
+
+    pub fn fingerprint_for_game(
+        &self,
+        game_id: &str,
+        content_path: &Path,
+    ) -> Result<CompatibilityFingerprint, AdapterError> {
+        let profile = CoreProfile::for_game(game_id);
         let executable = canonicalize_below(&self.executable(), &self.install_root)?;
-        let core = canonicalize_below(&self.core(), &self.install_root)?;
-        let rom = canonicalize_below(rom_path, &self.rom_root())?;
+        let core = canonicalize_below(&self.core(profile), &self.install_root)?;
+        let content = canonicalize_below(content_path, &self.rom_root())?;
         Ok(CompatibilityFingerprint {
             retroarch_version: self.installed_version(),
             executable_sha256: sha256_file(&executable)?,
             core_sha256: sha256_file(&core)?,
-            content_sha256: sha256_file(&rom)?,
+            content_sha256: sha256_file(&content)?,
         })
+    }
+
+    pub fn adapter_id_for_game(&self, game_id: &str) -> &'static str {
+        CoreProfile::for_game(game_id).adapter_id()
     }
 
     pub fn match_launch_spec(
@@ -83,12 +142,22 @@ impl RetroarchAdapter {
         rom_path: &Path,
         descriptor: &MatchDescriptor,
     ) -> Result<LaunchSpec, AdapterError> {
+        self.match_launch_spec_for_game("fbneo", rom_path, descriptor)
+    }
+
+    pub fn match_launch_spec_for_game(
+        &self,
+        game_id: &str,
+        content_path: &Path,
+        descriptor: &MatchDescriptor,
+    ) -> Result<LaunchSpec, AdapterError> {
+        let profile = CoreProfile::for_game(game_id);
         self.prepare_match(descriptor)?;
         let transport = descriptor.transport_lease()?;
-        self.validate(rom_path)?;
+        self.validate_profile(profile, content_path)?;
         let executable = canonicalize_below(&self.executable(), &self.install_root)?;
-        let core = canonicalize_below(&self.core(), &self.install_root)?;
-        let rom = canonicalize_below(rom_path, &self.rom_root())?;
+        let core = canonicalize_below(&self.core(profile), &self.install_root)?;
+        let content = canonicalize_below(content_path, &self.rom_root())?;
         let current_dir = executable
             .parent()
             .ok_or_else(|| AdapterError::Validation("RetroArch has no parent directory".into()))?
@@ -112,7 +181,7 @@ impl RetroarchAdapter {
             OsString::from("--frames"),
             OsString::from(descriptor.input_delay_frames.to_string()),
             OsString::from("--verbose"),
-            rom.into_os_string(),
+            content.into_os_string(),
         ]);
         Ok(LaunchSpec {
             executable,
@@ -128,6 +197,58 @@ impl RetroarchAdapter {
         descriptor: &MatchDescriptor,
     ) -> Result<L::Handle, AdapterError> {
         launcher.spawn(&self.match_launch_spec(rom_path, descriptor)?)
+    }
+
+    pub fn launch_match_for_game_with<L: ProcessLauncher>(
+        &self,
+        launcher: &L,
+        game_id: &str,
+        content_path: &Path,
+        descriptor: &MatchDescriptor,
+    ) -> Result<L::Handle, AdapterError> {
+        launcher.spawn(&self.match_launch_spec_for_game(game_id, content_path, descriptor)?)
+    }
+
+    pub fn launch_match_for_game(
+        &self,
+        game_id: &str,
+        content_path: &Path,
+        descriptor: &MatchDescriptor,
+    ) -> Result<Child, AdapterError> {
+        self.launch_match_for_game_with(&StdProcessLauncher, game_id, content_path, descriptor)
+    }
+
+    fn validate_profile(
+        &self,
+        profile: CoreProfile,
+        content_path: &Path,
+    ) -> Result<ValidationReport, AdapterError> {
+        let executable = self.executable();
+        let core = self.core(profile);
+        if !executable.is_file() || !core.is_file() {
+            return Err(AdapterError::NotDetected(format!(
+                "expected {EXECUTABLE} and cores/{} below the RetroArch root",
+                profile.core_name()
+            )));
+        }
+        canonicalize_below(content_path, &self.rom_root())?;
+        if content_path.extension().and_then(|value| value.to_str())
+            != Some(profile.content_extension())
+        {
+            return Err(AdapterError::Validation(format!(
+                "{} content must use .{}",
+                profile.adapter_id(),
+                profile.content_extension()
+            )));
+        }
+        let mut report = ValidationReport::valid();
+        if self.installed_version().is_none() {
+            report.warnings.push(
+                "VERSION.txt is missing; exact RetroArch version will not appear in evidence"
+                    .into(),
+            );
+        }
+        Ok(report)
     }
 }
 
@@ -160,21 +281,7 @@ impl EmulatorAdapter for RetroarchAdapter {
     }
 
     fn validate(&self, rom_path: &Path) -> Result<ValidationReport, AdapterError> {
-        self.detect(&self.install_root)?;
-        canonicalize_below(rom_path, &self.rom_root())?;
-        if rom_path.extension().and_then(|value| value.to_str()) != Some("zip") {
-            return Err(AdapterError::Validation(
-                "RetroArch FBNeo content must be a .zip file".into(),
-            ));
-        }
-        let mut report = ValidationReport::valid();
-        if self.installed_version().is_none() {
-            report.warnings.push(
-                "VERSION.txt is missing; exact RetroArch version will not appear in evidence"
-                    .into(),
-            );
-        }
-        Ok(report)
+        self.validate_profile(CoreProfile::Fbneo, rom_path)
     }
 
     fn get_version(&self) -> Result<String, AdapterError> {
@@ -185,7 +292,7 @@ impl EmulatorAdapter for RetroarchAdapter {
     fn launch(&self, rom_path: &Path) -> Result<Child, AdapterError> {
         self.validate(rom_path)?;
         let executable = canonicalize_below(&self.executable(), &self.install_root)?;
-        let core = canonicalize_below(&self.core(), &self.install_root)?;
+        let core = canonicalize_below(&self.core(CoreProfile::Fbneo), &self.install_root)?;
         let rom = canonicalize_below(rom_path, &self.rom_root())?;
         let current_dir = executable
             .parent()
@@ -264,7 +371,11 @@ mod tests {
         std::fs::create_dir_all(root.join("ROMs")).expect("ROM directory");
         std::fs::write(root.join(EXECUTABLE), b"retroarch").expect("executable");
         std::fs::write(root.join("cores").join(FBNEO_CORE), b"fbneo-core").expect("core");
+        std::fs::write(root.join("cores").join(TEST_CORE), b"opencade-test-core")
+            .expect("test core");
         std::fs::write(root.join("ROMs/sfiii3.zip"), b"content").expect("content");
+        std::fs::write(root.join("ROMs/opencade_test.ocade"), b"OPENCADE-TEST-1\n")
+            .expect("test content");
         std::fs::write(root.join("VERSION.txt"), "1.22.0\n").expect("version");
         root
     }
@@ -335,6 +446,31 @@ mod tests {
                     .expect("rom")
                     .into_os_string()
             )
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn fingerprints_and_launches_the_no_rom_test_profile() {
+        let root = fixture();
+        let adapter = RetroarchAdapter::new(&root);
+        let content = root.join("ROMs/opencade_test.ocade");
+        let fingerprint = adapter
+            .fingerprint_for_game(TEST_GAME_ID, &content)
+            .expect("test fingerprint");
+        assert_eq!(adapter.adapter_id_for_game(TEST_GAME_ID), "retroarch_test");
+        assert_eq!(fingerprint.content_sha256.len(), 64);
+        let spec = adapter
+            .match_launch_spec_for_game(TEST_GAME_ID, &content, &descriptor(PeerRole::Host))
+            .expect("test launch spec");
+        assert!(spec.args.iter().any(|arg| {
+            Path::new(arg)
+                .file_name()
+                .is_some_and(|name| name == TEST_CORE)
+        }));
+        assert_eq!(
+            spec.args.last(),
+            Some(&content.canonicalize().expect("content").into_os_string())
         );
         std::fs::remove_dir_all(root).expect("remove fixture");
     }

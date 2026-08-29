@@ -3,8 +3,10 @@ import { createEnvelope, parseEnvelope, type Envelope } from "@opencade/protocol
 export type ConnectionState = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 export type MessageListener = (message: Envelope<unknown>) => void;
 
-export function reconnectDelay(attempt: number): number {
-  return Math.min(30_000, 500 * 2 ** Math.max(0, attempt));
+export function reconnectDelay(attempt: number, random: () => number = Math.random): number {
+  const cap = Math.min(30_000, 500 * 2 ** Math.max(0, attempt));
+  const unit = Math.max(0, Math.min(1, random()));
+  return Math.round(cap / 2 + (cap / 2) * unit);
 }
 
 export class OpenCadeSocket {

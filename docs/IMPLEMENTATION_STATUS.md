@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-08-25.
+Updated 2026-08-28.
 
 ## Implemented and automated
 
@@ -65,6 +65,16 @@ Updated 2026-08-25.
   bin + `crates/proof-of-match/tests/proof_of_match.rs`).
 - PostgreSQL, WebSocket, lifecycle, safe-launch, mock-match, proof-of-match, UDP, NAT, relay,
   two-process, TypeScript, and MSRV checks in CI.
+- An original Apache-2.0 deterministic libretro test core plus inert `.ocade` content, built and
+  signed with the Windows alpha kit, for a complete Proof-of-Play path without ROMs, BIOS files,
+  firmware, or a third-party core.
+- Controller and deterministic player-slot preflight in the synchronized launch barrier.
+- Canonically verified, idempotent post-match receipts that create a fresh one-use same-game invite.
+- A k-anonymous public compatibility aggregate and static evidence map that never exposes raw
+  reports, identities, endpoints, paths, hashes, or invite data.
+- A per-game native route policy that fails closed to direct LAN and selects the TCP tunnel only
+  with relay configuration, explicit operator enablement, a bounded physical-attempt minimum, and
+  an 80% canonical verified-pair rate.
 
 ## Deliberately not claimed
 
@@ -77,5 +87,6 @@ Updated 2026-08-25.
 - Production installer packaging/signing, friends/chat/rankings/replays, or a public MVP release.
 - Ten two-machine LAN matches and a 20-person community alpha; these require external testers and
   real Windows hosts. Use `docs/alpha/LAN_TEST.md` to collect that evidence.
-- Automatic selection of the native TCP tunnel as a gameplay route. ADR 0005 requires physical
-  two-host proof before enabling that fallback in the match coordinator.
+- Evidence-qualified automatic TCP-tunnel selection has no physical two-host evidence yet. It is
+  implemented but operator-disabled by default under ADR 0006; enabling it without the documented
+  campaign would be an unsupported deployment claim.
