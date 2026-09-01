@@ -5,4 +5,10 @@ import type { ReadinessCheckId } from "./ReadinessCheckId";
 /**
  * Closed, data-minimized event contract. It intentionally has no arbitrary properties field.
  */
-export type ProductEventPayload = { event_id: string, anonymous_session_id: string, event: ProductEventName, game_id: string, blocked_checks: Array<ReadinessCheckId>, };
+export type ProductEventPayload = {
+  event_id: string;
+  anonymous_session_id: string;
+  event: ProductEventName;
+  game_id: string;
+  blocked_checks: Array<ReadinessCheckId>;
+};

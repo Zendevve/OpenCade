@@ -5,4 +5,12 @@ import type { RoomInvitePayload } from "./RoomInvitePayload";
 /**
  * Privacy-safe proof of a completed match paired with a fresh, expiring continuation invite.
  */
-export type MatchReceiptPayload = { receipt_id: string, game_id: string, result: string, route: NativeRouteCapability, compatibility_verified: boolean, created_at: string, invite: RoomInvitePayload, };
+export type MatchReceiptPayload = {
+  receipt_id: string;
+  game_id: string;
+  result: string;
+  route: NativeRouteCapability;
+  compatibility_verified: boolean;
+  created_at: string;
+  invite: RoomInvitePayload;
+};

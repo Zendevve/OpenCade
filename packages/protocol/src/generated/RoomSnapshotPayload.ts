@@ -7,4 +7,13 @@ import type { RoomPayload } from "./RoomPayload";
 /**
  * Durable room snapshot used after initial connection and every reconnect.
  */
-export type RoomSnapshotPayload = { room: RoomPayload, revision: number, preflight_count: number, compatibility_matched: boolean, controller_ready_count: number, barrier: LaunchBarrierPayload, route: NativeRouteCapability, route_policy: NativeRoutePolicyPayload, };
+export type RoomSnapshotPayload = {
+  room: RoomPayload;
+  revision: number;
+  preflight_count: number;
+  compatibility_matched: boolean;
+  controller_ready_count: number;
+  barrier: LaunchBarrierPayload;
+  route: NativeRouteCapability;
+  route_policy: NativeRoutePolicyPayload;
+};

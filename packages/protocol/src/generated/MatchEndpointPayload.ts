@@ -4,4 +4,10 @@ import type { NatMappingState } from "./NatMappingState";
 /**
  * Direct-UDP endpoint candidate exchanged between authenticated room members.
  */
-export type MatchEndpointPayload = { room_id: string, endpoint: string, reflexive_endpoint: string | null, nat: NatMappingState, nonce: string, };
+export type MatchEndpointPayload = {
+  room_id: string;
+  endpoint: string;
+  reflexive_endpoint: string | null;
+  nat: NatMappingState;
+  nonce: string;
+};
