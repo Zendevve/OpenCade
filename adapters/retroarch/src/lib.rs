@@ -137,9 +137,17 @@ impl RetroarchAdapter {
     /// opencade_test_core.c; there content presence alone suffices.
     pub fn is_available_for_game(&self, game_id: &str) -> bool {
         let profile = CoreProfile::for_game(game_id);
-        let content = self.rom_root().join(format!("{}.{}", game_id, profile.content_extension()));
-        let content_flat = self.install_root.join(format!("{}.{}", game_id, profile.content_extension()));
-        let content_build = self.install_root.join("build").join(format!("{}.{}", game_id, profile.content_extension()));
+        let content = self
+            .rom_root()
+            .join(format!("{}.{}", game_id, profile.content_extension()));
+        let content_flat =
+            self.install_root
+                .join(format!("{}.{}", game_id, profile.content_extension()));
+        let content_build = self.install_root.join("build").join(format!(
+            "{}.{}",
+            game_id,
+            profile.content_extension()
+        ));
         let core = self.core(profile);
         let core_flat = self.install_root.join(profile.core_name());
         let core_build = self.install_root.join("build").join(profile.core_name());
@@ -151,7 +159,6 @@ impl RetroarchAdapter {
         }
         content_exists && core_exists
     }
-
 
     pub fn adapter_id_for_game(&self, game_id: &str) -> &'static str {
         CoreProfile::for_game(game_id).adapter_id()

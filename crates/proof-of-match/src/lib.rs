@@ -11,9 +11,9 @@ use opencade_emulator_sdk::{
 };
 use opencade_networking::{InMemoryPeer, InputFrame, MatchVerification, verify_match_reports};
 use opencade_protocol::{
-    MatchCandidateKind, MatchReport, MatchReportClient, MatchReportCompatibility,
-    MatchReportProbe, MatchReportRole, MatchReportRoom, MatchReportTransport, NatMappingState,
-    NativeRouteCapability, RoomState,
+    MatchCandidateKind, MatchReport, MatchReportClient, MatchReportCompatibility, MatchReportProbe,
+    MatchReportRole, MatchReportRoom, MatchReportTransport, NatMappingState, NativeRouteCapability,
+    RoomState,
 };
 use thiserror::Error;
 
