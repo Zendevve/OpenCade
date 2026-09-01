@@ -35,6 +35,8 @@ export default function MatchReadiness({ token, game, onBack, onContinue }: Prop
     preflight: preflight.data,
     networkStatus: queryStatus(desktop, network.status),
     network: network.data,
+    gameId: game.id,
+    isDev: import.meta.env.DEV,
   });
   const continueToLobby = () => {
     if (assessment.canContinue) {

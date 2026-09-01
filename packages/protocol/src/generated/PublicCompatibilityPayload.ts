@@ -4,9 +4,4 @@ import type { PublicCompatibilityCohort } from "./PublicCompatibilityCohort";
 /**
  * Public aggregate contract. Cohorts below `minimum_cohort_size` are omitted server-side.
  */
-export type PublicCompatibilityPayload = {
-  schema_version: number;
-  generated_at: string;
-  minimum_cohort_size: number;
-  cohorts: Array<PublicCompatibilityCohort>;
-};
+export type PublicCompatibilityPayload = { schema_version: number, generated_at: string, minimum_cohort_size: number, cohorts: Array<PublicCompatibilityCohort>, };

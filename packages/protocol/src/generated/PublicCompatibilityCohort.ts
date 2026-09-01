@@ -4,13 +4,4 @@ import type { NativeRouteCapability } from "./NativeRouteCapability";
 /**
  * A k-anonymous compatibility cohort suitable for unauthenticated publication.
  */
-export type PublicCompatibilityCohort = {
-  game_id: string;
-  platform: string;
-  adapter: string;
-  emulator_version: string | null;
-  transport: string;
-  native_route: NativeRouteCapability;
-  attempts: number;
-  verified: number;
-};
+export type PublicCompatibilityCohort = { game_id: string, platform: string, adapter: string, emulator_version: string | null, transport: string, native_route: NativeRouteCapability, attempts: number, verified: number, };

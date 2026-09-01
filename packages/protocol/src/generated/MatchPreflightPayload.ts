@@ -5,9 +5,4 @@ import type { MatchReportCompatibility } from "./MatchReportCompatibility";
 /**
  * Privacy-safe compatibility handshake performed before either emulator is launched.
  */
-export type MatchPreflightPayload = {
-  room_id: string;
-  compatibility: MatchReportCompatibility;
-  native_port_available: boolean;
-  controller: ControllerPreflightPayload;
-};
+export type MatchPreflightPayload = { room_id: string, compatibility: MatchReportCompatibility, native_port_available: boolean, controller: ControllerPreflightPayload, };

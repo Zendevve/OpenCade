@@ -9,7 +9,7 @@ pub struct RuntimeConfig {
 impl RuntimeConfig {
     pub fn from_env() -> Result<Self, String> {
         let api_url = std::env::var("OPENCADE_API_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
         validate_api_url(&api_url)?;
         let stun_server = std::env::var("OPENCADE_STUN_SERVER")
             .ok()

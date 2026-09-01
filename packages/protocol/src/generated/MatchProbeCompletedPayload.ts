@@ -3,8 +3,4 @@
 /**
  * Result of a completed direct-UDP proof, relayed to the other room member.
  */
-export type MatchProbeCompletedPayload = {
-  room_id: string;
-  frames_received: number;
-  transcript_checksum: string;
-};
+export type MatchProbeCompletedPayload = { room_id: string, frames_received: number, transcript_checksum: string, };

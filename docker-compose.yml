@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: opencade
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD to a random value}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opencade}
       POSTGRES_DB: opencade
     ports:
       - "127.0.0.1:5432:5432"
@@ -30,15 +30,15 @@ services:
         condition: service_healthy
     command: ["opencade-server", "--migrate"]
     environment: &server-environment
-      DATABASE_URL: postgres://opencade:${POSTGRES_PASSWORD}@db:5432/opencade
-      RUST_LOG: info
-      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET to at least 32 random bytes}
-      OPERATOR_TOKEN: ${OPERATOR_TOKEN:?set OPERATOR_TOKEN to at least 32 random bytes}
+      DATABASE_URL: postgres://opencade:${POSTGRES_PASSWORD:-opencade}@db:5432/opencade
+      RUST_LOG: ${RUST_LOG:-info}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me-at-least-32-bytes-long}
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-dev-operator-token-change-me-at-least-32-bytes-long}
       OPENCADE_ENV: production
       PORT: 8080
-      PUBLIC_RELAY_URL: ${PUBLIC_RELAY_URL:?set PUBLIC_RELAY_URL to the externally reachable wss relay URL}
-      STUN_HOST: ${STUN_HOST:?set STUN_HOST to the externally reachable STUN host}
-      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
+      PUBLIC_RELAY_URL: ${PUBLIC_RELAY_URL:-wss://relay.example.com/relay}
+      STUN_HOST: ${STUN_HOST:-stun.example.com}
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:-dev-relay-secret-change-me-at-least-32-bytes-long}
       OPENCADE_EVIDENCE_TCP_TUNNEL: ${OPENCADE_EVIDENCE_TCP_TUNNEL:-false}
       ROUTE_POLICY_MIN_ATTEMPTS: ${ROUTE_POLICY_MIN_ATTEMPTS:-10}
 
@@ -53,7 +53,7 @@ services:
         condition: service_completed_successfully
     environment: *server-environment
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready || exit 1"]
       interval: 10s
@@ -68,11 +68,11 @@ services:
     image: opencade-relay:local
     restart: unless-stopped
     environment:
-      RUST_LOG: info
+      RUST_LOG: ${RUST_LOG:-info}
       PORT: 8081
-      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?set RELAY_AUTH_SECRET to at least 32 random bytes}
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:-dev-relay-secret-change-me-at-least-32-bytes-long}
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ready || exit 1"]
       interval: 10s

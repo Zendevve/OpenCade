@@ -8,12 +8,4 @@ import type { NativeRouteCapability } from "./NativeRouteCapability";
 /**
  * Canonical, redacted evidence emitted by both the desktop and standalone LAN probe.
  */
-export type MatchReport = {
-  schema_version: number;
-  exported_at: string;
-  room: MatchReportRoom;
-  probe: MatchReportProbe;
-  client: MatchReportClient;
-  compatibility?: MatchReportCompatibility | null;
-  native_route?: NativeRouteCapability | null;
-};
+export type MatchReport = { schema_version: number, exported_at: string, room: MatchReportRoom, probe: MatchReportProbe, client: MatchReportClient, compatibility?: MatchReportCompatibility | null, native_route?: NativeRouteCapability | null, };

@@ -3,4 +3,4 @@
 /**
  * Local controller observation and deterministic player assignment for native netplay.
  */
-export type ControllerPreflightPayload = { connected: boolean; player_slot: number };
+export type ControllerPreflightPayload = { connected: boolean, player_slot: number, };

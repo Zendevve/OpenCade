@@ -1,0 +1,8 @@
+# Thin wrapper so `docker compose -f docker/docker-compose.yml up` works from repo root.
+# Canonical compose is at repo root `docker-compose.yml`. This file simply includes it
+# with the correct project directory so build contexts resolve to the repo root.
+include:
+  - path: ../docker-compose.yml
+    project_directory: ..
+
+name: opencade

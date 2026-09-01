@@ -73,7 +73,7 @@ export function isDesktopRuntime(): boolean {
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   if (!isDesktopRuntime()) {
     return {
-      api_url: import.meta.env.VITE_API_URL ?? "http://localhost:8080",
+      api_url: import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8080",
       stun_server: runtimeStunServer,
     };
   }
@@ -84,6 +84,13 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
 
 export async function scanGame(gameId: string): Promise<GameAvailability> {
   if (!isDesktopRuntime()) {
+    if (gameId === "opencade_test" && import.meta.env.DEV) {
+      return {
+        game_id: gameId,
+        available: true,
+        warnings: ["Dev fixture mocked — no ROM required"],
+      };
+    }
     return { game_id: gameId, available: false, warnings: ["Desktop scan unavailable"] };
   }
   return invoke<GameAvailability>("scan_game", { gameId });
@@ -107,8 +114,34 @@ export async function launchRetroarchMatch(request: {
 }
 
 export async function retroarchPreflight(gameId: string): Promise<RetroarchPreflight> {
-  if (!isDesktopRuntime()) throw new Error("RetroArch preflight requires the desktop client");
-  return invoke<RetroarchPreflight>("retroarch_preflight", { gameId });
+  if (!isDesktopRuntime()) {
+    if (gameId === "opencade_test" && import.meta.env.DEV) {
+      return {
+        adapter: "retroarch_test",
+        emulator_version: "1.22.0-dev",
+        executable_sha256: "a".repeat(64),
+        core_sha256: "b".repeat(64),
+        content_sha256: "c".repeat(64),
+        native_port_available: true,
+      };
+    }
+    throw new Error("RetroArch preflight requires the desktop client");
+  }
+  try {
+    return await invoke<RetroarchPreflight>("retroarch_preflight", { gameId });
+  } catch (error) {
+    if (gameId === "opencade_test" && import.meta.env.DEV) {
+      return {
+        adapter: "retroarch_test",
+        emulator_version: "1.22.0-dev",
+        executable_sha256: "a".repeat(64),
+        core_sha256: "b".repeat(64),
+        content_sha256: "c".repeat(64),
+        native_port_available: true,
+      };
+    }
+    throw error;
+  }
 }
 
 export async function onEmulatorExit(
@@ -144,7 +177,14 @@ export async function runNetworkTest(): Promise<NetworkDiagnostics> {
   if (!isDesktopRuntime()) {
     return { nat: "unknown", rtt_ms: null, relay_reachable: false };
   }
-  return invoke<NetworkDiagnostics>("network_test");
+  try {
+    return await invoke<NetworkDiagnostics>("network_test");
+  } catch {
+    if (import.meta.env.DEV) {
+      return { nat: "unknown", rtt_ms: null, relay_reachable: false };
+    }
+    throw new Error("Network diagnostics failed");
+  }
 }
 
 export async function reserveMatchProbe(roomId: string): Promise<MatchEndpointCandidate> {

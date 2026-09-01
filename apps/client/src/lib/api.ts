@@ -58,7 +58,7 @@ export class ApiError extends Error {
   }
 }
 
-let apiBase = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "http://localhost:8080";
+let apiBase = import.meta.env.VITE_API_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8080";
 
 export function configureApiBase(url: string): void {
   const parsed = new URL(url);

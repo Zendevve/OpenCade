@@ -3,10 +3,4 @@
 /**
  * Presence / latency update. Mirrors `diagnose_network` and `presence.update`.
  */
-export type PresencePayload = {
-  user_id: string;
-  rtt_ms: number;
-  loss: number;
-  jitter: number;
-  relay_reachable: boolean;
-};
+export type PresencePayload = { user_id: string, rtt_ms: number, loss: number, jitter: number, relay_reachable: boolean, };

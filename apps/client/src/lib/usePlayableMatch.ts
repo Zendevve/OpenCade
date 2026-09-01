@@ -209,6 +209,7 @@ export function usePlayableMatch({
     let unlisten: (() => void) | undefined;
     void onEmulatorExit((event) => {
       if (event.room_id !== roomId || cancelled) return;
+      void api.finishRoom(token, roomId, event.exit_code ?? null).catch(() => undefined);
       dispatch({ type: "native_exited" });
       void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
     }).then((cleanup) => {
@@ -219,7 +220,7 @@ export function usePlayableMatch({
       cancelled = true;
       unlisten?.();
     };
-  }, [queryClient, roomId]);
+  }, [queryClient, roomId, token]);
 
   useEffect(
     () => () => {

@@ -3,10 +3,4 @@
 /**
  * Optional, privacy-safe hashes that let both peers prove identical native emulator inputs.
  */
-export type MatchReportCompatibility = {
-  adapter: string;
-  emulator_version: string | null;
-  executable_sha256: string;
-  core_sha256: string;
-  content_sha256: string;
-};
+export type MatchReportCompatibility = { adapter: string, emulator_version: string | null, executable_sha256: string, core_sha256: string, content_sha256: string, };

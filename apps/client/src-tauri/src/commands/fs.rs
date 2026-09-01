@@ -3,6 +3,44 @@ use opencade_adapter_retroarch::RetroarchAdapter;
 use opencade_emulator_sdk::EmulatorAdapter;
 use serde::Serialize;
 use std::path::PathBuf;
+use tauri::Manager;
+
+fn retroarch_test_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(root) = std::env::var_os("OPENCADE_RETROARCH_ROOT") {
+        let p = PathBuf::from(root);
+        if !p.is_absolute() {
+            return Err("OPENCADE_RETROARCH_ROOT must be an absolute path".into());
+        }
+        return Ok(p);
+    }
+    let resource_root = app
+        .path()
+        .resource_dir()
+        .map(|r| r.join("emulator").join("retroarch"))
+        .map_err(|_| "application resource directory is unavailable".to_string())?;
+    if resource_root.is_dir() {
+        return Ok(resource_root);
+    }
+    let bases = [
+        std::env::current_dir().ok(),
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")),
+    ];
+    for base in bases.into_iter().flatten() {
+        let mut cur = base;
+        for _ in 0..5 {
+            let cand = cur.join("fixtures/libretro/opencade-test-core");
+            if cand.is_dir() {
+                return Ok(cand);
+            }
+            if let Some(parent) = cur.parent() {
+                cur = parent.to_path_buf();
+            } else {
+                break;
+            }
+        }
+    }
+    Ok(resource_root)
+}
 
 #[derive(Debug, Serialize)]
 pub struct GameAvailability {
@@ -40,21 +78,22 @@ pub fn scan_fbneo_rom(root: PathBuf, game_id: &str) -> Result<GameAvailability, 
 #[tauri::command]
 pub async fn scan_game(app: tauri::AppHandle, game_id: String) -> Result<GameAvailability, String> {
     if game_id == opencade_adapter_retroarch::TEST_GAME_ID {
-        let root = super::process::retroarch_root(&app)?;
+        let root = retroarch_test_root(&app)?;
         return tokio::task::spawn_blocking(move || {
             let adapter = RetroarchAdapter::new(&root);
-            let content = root.join("ROMs").join("opencade_test.ocade");
-            match adapter.fingerprint_for_game(&game_id, &content) {
-                Ok(_) => Ok(GameAvailability {
+            let available = adapter.is_available_for_game(&game_id);
+            if available {
+                Ok(GameAvailability {
                     game_id,
                     available: true,
                     warnings: Vec::new(),
-                }),
-                Err(error) => Ok(GameAvailability {
+                })
+            } else {
+                Ok(GameAvailability {
                     game_id,
                     available: false,
-                    warnings: vec![error.to_string()],
-                }),
+                    warnings: vec![format!("test content not found below {}", root.display())],
+                })
             }
         })
         .await

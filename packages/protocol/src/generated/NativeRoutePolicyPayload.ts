@@ -4,9 +4,4 @@ import type { NativeRouteCapability } from "./NativeRouteCapability";
 /**
  * Evidence-backed route decision. Insufficient samples always preserve the direct-LAN policy.
  */
-export type NativeRoutePolicyPayload = {
-  route: NativeRouteCapability;
-  reason: string;
-  evidence_attempts: number;
-  evidence_verified: number;
-};
+export type NativeRoutePolicyPayload = { route: NativeRouteCapability, reason: string, evidence_attempts: number, evidence_verified: number, };

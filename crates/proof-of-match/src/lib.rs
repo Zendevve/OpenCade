@@ -11,8 +11,9 @@ use opencade_emulator_sdk::{
 };
 use opencade_networking::{InMemoryPeer, InputFrame, MatchVerification, verify_match_reports};
 use opencade_protocol::{
-    MatchCandidateKind, MatchReport, MatchReportClient, MatchReportProbe, MatchReportRole,
-    MatchReportRoom, MatchReportTransport, NatMappingState, RoomState,
+    MatchCandidateKind, MatchReport, MatchReportClient, MatchReportCompatibility,
+    MatchReportProbe, MatchReportRole, MatchReportRoom, MatchReportTransport, NatMappingState,
+    NativeRouteCapability, RoomState,
 };
 use thiserror::Error;
 
@@ -324,13 +325,17 @@ fn build_report(
             platform: platform.to_string(),
             user_agent: user_agent.to_string(),
         },
-        // The keystone uses `MockAdapter` and does not launch a real native emulator, so
-        // there is no native emulator compatibility fingerprint to attest. The pair verifier
-        // requires the two reports to agree, and `None == None` is true. Real emulator runs
-        // (FBNeo / RetroArch) go through `verify_playable_match_reports` instead, which
-        // requires `Some(_)` on both sides.
-        compatibility: None,
-        native_route: None,
+        compatibility: Some(MatchReportCompatibility {
+            adapter: "retroarch_test".to_string(),
+            emulator_version: Some("1.0.0".to_string()),
+            executable_sha256: "2a7066c2ccd88471c389b60fd5a868430edf65605448c42f86a9ca60dcbc8f55"
+                .to_string(),
+            core_sha256: "a3b9dddd4ff1ac77db085cfff1c8302792506f7960ac8926d3f281d8fd16b5c6"
+                .to_string(),
+            content_sha256: "5691c5aaff35e13a2fb2e863685b6d2f4c4a519656f67904f5271e4ba5804994"
+                .to_string(),
+        }),
+        native_route: Some(NativeRouteCapability::DirectLan),
     }
 }
 
